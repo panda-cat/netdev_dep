@@ -4,6 +4,7 @@
 from concurrent.futures import ThreadPoolExecutor
 import netmiko
 import os
+import datetime
 from threading import Lock
 import pandas as pd
 
@@ -11,14 +12,14 @@ class net_dev():
 
     def __init__(self,excel_name):
         try :
-            os.mkdir("./log")
+            os.mkdir("./result"+'{0:%Y%m%d}'.format(datetime.datetime.now()))
         except:
             pass
         self.excel_name = excel_name
         self.list = [] # 空列表存储设备信息数据
         self.pool = ThreadPoolExecutor(10) # 初始化线程数量
         self.lock = Lock()  # 添加线程锁，避免写入数据丢失
-        self.path = ("./log")  # 创建保存log路径
+        self.path = ("./result"+'{0:%Y%m%d}'.format(datetime.datetime.now()))  # 创建保存result路径
         #self.mult_config=[] # 创建列表，保存多条命令。用于批量执行命令
 
     def get_dev_info(self):
@@ -27,7 +28,7 @@ class net_dev():
         self.list = df.to_dict(orient="records")  # 将数据打印出来，已字典存储的列表数据
         #self.mult_config = list(df['mult_command'].split(";"))
         #mult_conf = df["mult_command"].values.tolist()  # 取一列的值生成列表
-        print(self.list)
+        #print(self.list)
 
         # 获取sheet(CMD)的dataframe
         #df1 = pd.read_excel(self.excel_name,sheet_name="Sheet1")
@@ -81,7 +82,7 @@ class net_dev():
         os.chdir(self.path)
         self.pool.shutdown(True)
 
-filename = input("输入设备信息:")
-yc_use = net_dev(filename)
-yc_use.get_dev_info()
-yc_use.main()
+filename = input("输入设备信息(excel文件):")
+my_use = net_dev(filename)
+my_use.get_dev_info()
+my_use.main()
