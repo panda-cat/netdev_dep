@@ -49,7 +49,7 @@ class net_dev():
             if devices['secret'] != "":
                connect_dev.enable()
             #for cmd in cmds:
-            cmd_out = connect_dev.send_command(cmds,cmd_verify=False)
+            cmd_out = connect_dev.send_multiline(cmds)
             with open (ip + ".txt", "w",encoding="utf-8")  as tmp_fle:
                  tmp_fle.write(cmd_out+'\n')
             print(ip + " 执行成功")
