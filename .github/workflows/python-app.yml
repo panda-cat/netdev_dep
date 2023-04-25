@@ -1,0 +1,39 @@
+name: executables
+
+on: [push]
+
+jobs:
+  build:
+
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        #os: ["windows-latest", "ubuntu-latest", "macOS-latest"]
+        os: ["windows-latest"]
+        python-version: ["3.11"]
+        architecture: ["x64"]
+        include:
+        - os: "windows-2019"
+          python-version: "3.8"
+          architecture: "x86"
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Set up Python ${{ matrix.python-version }} ${{ matrix.architecture }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python-version }}
+        architecture: ${{ matrix.architecture }}
+
+    - name: Build executable
+      run: |
+        pip install netmiko pyinstaller pandas pd openpyxl
+        python scripts/pyinstaller.py
+    - name: Upload executable
+      uses: actions/upload-artifact@v3
+      with:
+        name: pack-${{ matrix.os }}-${{ matrix.architecture }}-${{ matrix.python-version }}
+        path: |
+          dist
