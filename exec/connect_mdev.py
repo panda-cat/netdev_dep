@@ -81,6 +81,7 @@ class net_dev():
         os.chdir(self.path)
         self.pool.shutdown(True)
 
-yc_use = net_dev("inventory.xlsx")
+filename = input("输入设备信息:")
+yc_use = net_dev(filename)
 yc_use.get_dev_info()
 yc_use.main()
