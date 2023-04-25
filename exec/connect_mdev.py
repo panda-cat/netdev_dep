@@ -19,7 +19,7 @@ class net_dev():
         self.pool = ThreadPoolExecutor(10) # 初始化线程数量
         self.lock = Lock()  # 添加线程锁，避免写入数据丢失
         self.path = ("./log")  # 创建保存log路径
-        self.mult_config=[] # 创建列表，保存多条命令。用于批量执行命令
+        #self.mult_config=[] # 创建列表，保存多条命令。用于批量执行命令
 
     def get_dev_info(self):
         # 获取sheet(设备信息)的dataframe.
@@ -35,7 +35,7 @@ class net_dev():
         #self.mult_config = result1["mult_command"]
         #print(self.mult_config)
 
-    def mult_cmd_in(self,ip,user,dev_type,passwd,secret):
+    def mult_cmd_in(self,ip,user,dev_type,passwd,secret,cmds):
         try:
             devices = {
                 'device_type': dev_type,  # 锐捷os:ruijie_os, 华三：hp_comware 中兴：zte_zxros
@@ -48,10 +48,10 @@ class net_dev():
             connect_dev = netmiko.ConnectHandler(**devices)
             if devices['secret'] != "":
                connect_dev.enable()
-            for cmd in self.mult_config:
-                cmd_out = connect_dev.send_command(cmd)
-                with open (ip + ".txt", "w",encoding="utf-8")  as tmp_fle:
-                     tmp_fle.write(cmd_out+'\n')
+            #for cmd in cmds:
+            cmd_out = connect_dev.send_command(cmds,cmd_verify=False)
+            with open (ip + ".txt", "w",encoding="utf-8")  as tmp_fle:
+                 tmp_fle.write(cmd_out+'\n')
             print(ip + " 执行成功")
 
         except netmiko.exceptions.NetmikoAuthenticationException:
@@ -69,7 +69,7 @@ class net_dev():
 
     def main(self):
         for dev_info in self.list:
-            self.mult_config = list(dev_info['mult_command'].split(";"))
+            cmds = list(dev_info['mult_command'].split(";"))
             #print(dev_info)
             ip = dev_info["host"]
             #print(ip)
@@ -77,7 +77,7 @@ class net_dev():
             dev_type = dev_info["device_type"]
             passwd = dev_info["password"]
             secret = dev_info["secret"]
-            self.pool.submit(self.mult_cmd_in,ip,user,dev_type,passwd,secret)
+            self.pool.submit(self.mult_cmd_in,ip,user,dev_type,passwd,secret,cmds)
         os.chdir(self.path)
         self.pool.shutdown(True)
 
