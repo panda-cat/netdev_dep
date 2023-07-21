@@ -11,10 +11,10 @@ jobs:
       matrix:
         #os: ["windows-latest", "ubuntu-latest", "macOS-latest"]
         os: ["windows-latest"]
-        python-version: ["3.11"]
+        python-version: ["3.8"]
         architecture: ["x64"]
         include:
-        - os: "windows-2019"
+        - os: "windows-2008"
           python-version: "3.8"
           architecture: "x86"
 
