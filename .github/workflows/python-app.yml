@@ -11,10 +11,10 @@ jobs:
       matrix:
         #os: ["windows-latest", "ubuntu-latest", "macOS-latest"]
         os: ["windows-latest"]
-        python-version: ["3.8"]
+        python-version: ["3.12"]
         architecture: ["x64"]
         include:
-        - os: "windows-2008"
+        - os: "windows-2019"
           python-version: "3.8"
           architecture: "x86"
 
@@ -34,6 +34,6 @@ jobs:
     - name: Upload executable
       uses: actions/upload-artifact@v3
       with:
-        name: pack-${{ matrix.os }}-${{ matrix.architecture }}-${{ matrix.python-version }}
+        name: connexec-${{ matrix.os }}-${{ matrix.architecture }}-${{ matrix.python-version }}
         path: |
           dist
