@@ -15,5 +15,5 @@ PyInstaller.__main__.run([
     "--distpath", util.path("dist"),
     "--workpath", util.path("build"),
     "--specpath", util.path("build"),
-    util.path("exec", "connect_mdev.py"),
+    util.path("exec", "mdev_time.py"),
 ])
