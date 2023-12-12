@@ -91,11 +91,11 @@ opts,args = getopt.getopt(sys.argv[1:],'-h-i',['help','inputfile'])
 for opt_name,opt_value in opts:
     if opt_name in ('-h','--help'):
         print("usage: connexec.exe -i *.xlsx")
-        exit()
+        sys.exit()
     if opt_name in ('-i','--inputfile'):
         filename = opt_value
         print("设备信息excel文件：",filename)
-        
-my_use = net_dev(filename)
-my_use.get_dev_info()
-my_use.main()
+        my_use = net_dev(filename)
+        my_use.get_dev_info()
+        my_use.main()
+
