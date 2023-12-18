@@ -1,6 +1,3 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-
 import netmiko
 import threading
 import pandas as pd
@@ -9,11 +6,11 @@ import os
 import datetime
 
 def load_excel(excel_file):
-    df = pd.read_excel(excel_file,sheet_name="Sheet1")
+    df = pd.read_excel(excel_file, sheet_name="Sheet1")
     devices_info = df.to_dict(orient="records")
     return devices_info
 
-def execute_commands(ip,user,dev_type,passwd,secret,read_time,cmds):
+def execute_commands(ip, user, dev_type, passwd, secret, read_time, cmds):
     try:
         net_devices = {
                 'device_type': dev_type,
@@ -25,24 +22,24 @@ def execute_commands(ip,user,dev_type,passwd,secret,read_time,cmds):
             }
         net_connect = netmiko.ConnectHandler(**net_devices)
         if net_devices['secret'] != "huawei" or net_devices['secret'] != "huawei_telnet":
-           connect_dev.enable()
+           net_connect.enable()
         if net_devices['secret'] != "hp_comware" or net_devices['secret'] != "hp_comware_telnet":
-           connect_dev.enable()
-        cmd_out = connect_dev.send_multiline(cmds)
-        os.chdir(os.mkdir("./result"+'{0:%Y%m%d}'.format(datetime.datetime.now())))
-        with open (ip + ".txt", "w",encoding="utf-8")  as tmp_fle:
+           net_connect.enable()
+        cmd_out = net_connect.send_multiline(cmds)
+        os.makedirs(f"./result{datetime.datetime.now():%Y%m%d}", exist_ok=True)
+        with open (os.path.join(f"./result{datetime.datetime.now():%Y%m%d}", f"{ip}.txt"), "w", encoding="utf-8")  as tmp_fle:
              tmp_fle.write(cmd_out+'\n')
-        print(ip + " 执行成功")
+        print(f"{ip} 执行成功")
         return cmd_out
     except netmiko.exceptions.NetmikoAuthenticationException:
         with open("登录失败列表", "a", encoding="utf-8") as failed_ip:
-             failed_ip.write(ip + "  用户名密码错误\n")
-             print(ip + " 用户名密码错误")
+             failed_ip.write(f"{ip}  用户名密码错误\n")
+             print(f"{ip} 用户名密码错误")
              return None
     except netmiko.exceptions.NetmikoTimeoutException:
         with open("登录失败列表", "a", encoding="utf-8") as failed_ip:
-             failed_ip.write(ip + "       登录超时\n")
-             print(ip + " 登录超时")
+             failed_ip.write(f"{ip}       登录超时\n")
+             print(f"{ip} 登录超时")
              return None
 
 def multithreaded_execution(devices, num_threads):
