@@ -75,15 +75,15 @@ def main(argv):
         print("Usage: program_network_devices.py -c <excel_file> -t <num_threads>")
         sys.exit(2)
 
-    execl_file = ""
+    excel_file = ""
     num_threads = 4
     for opt, arg in opts:
         if opt in ("-c", "--excel"):
-            execl_file = arg
+            excel_file = arg
         elif opt in ("-t", "--threads"):
             num_threads = int(arg)
 
-    devices = load_execl(execl_file)
+    devices = load_excel(excel_file)
     #commands = ["show version", "show ip interface brief"]
 
     #multithreaded_execution(devices, commands, num_threads)
