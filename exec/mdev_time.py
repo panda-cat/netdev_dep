@@ -1,3 +1,4 @@
+```python
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
@@ -70,11 +71,11 @@ def execute_commands(device, folder):
     except netmiko.exceptions.NetmikoAuthenticationException:
         with open("登录失败列表", "a", encoding="utf-8") as failed_ip:
             failed_ip.write(f"{ip} 用户名密码错误\n")
-        print(f"{ip} 用户名密码错误")
+            print(f"{ip} 用户名密码错误")
     except netmiko.exceptions.NetmikoTimeoutException:
         with open("登录失败列表", "a", encoding="utf-8") as failed_ip:
             failed_ip.write(f"{ip} 登录超时\n")
-        print(f"{ip} 登录超时")
+            print(f"{ip} 登录超时")
 
     return None
 
@@ -126,6 +127,7 @@ def main(argv):
         output_folder = f"./result{datetime.datetime.now():%Y%m%d}"
         os.makedirs(output_folder, exist_ok=True)
 
+    folder = output_folder
     devices = load_excel(excel_file)
     multithreaded_execution(devices, num_threads, folder)
 
