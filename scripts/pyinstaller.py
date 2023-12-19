@@ -10,7 +10,7 @@ import os
 PyInstaller.__main__.run([
     "--onefile",
     "--console",
-    "--name", "ssh_exec." + ("exe" if os.name == "nt" else "bin"),
+    "--name", "connexec." + ("exe" if os.name == "nt" else "bin"),
     "--additional-hooks-dir", util.path("scripts"),
     "--distpath", util.path("dist"),
     "--workpath", util.path("build"),
