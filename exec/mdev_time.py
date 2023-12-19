@@ -15,23 +15,23 @@ def load_excel(excel_file):
     return devices_info
 
 
-def execute_commands(device_info):
-    ip = device_info["host"]
-    user = device_info["username"]
-    dev_type = device_info["device_type"]
-    passwd = device_info["password"]
-    secret = device_info["secret"]
-    read_time = device_info["readtime"]
-    cmds = list(device_info['mult_command'].split(";"))
+def execute_commands(devices_info):
+    ip = devices_info["host"]
+    user = devices_info["username"]
+    dev_type = devices_info["device_type"]
+    passwd = devices_info["password"]
+    secret = devices_info["secret"]
+    read_time = devices_info["readtime"]
+    cmds = list(devices_info["mult_command"].split(";"))
 
     try:
         net_devices = {
-            'device_type': dev_type,
-            'host': ip,
-            'username': user,
-            'password': passwd,
-            'secret': secret,
-            'read_timeout_override': read_time,
+            "device_type": dev_type,
+            "host": ip,
+            "username": user,
+            "password": passwd,
+            "secret": secret,
+            "read_timeout_override": read_time,
         }
         net_connect = netmiko.ConnectHandler(**net_devices)
         if dev_type == "paloalto_panos":
@@ -42,9 +42,10 @@ def execute_commands(device_info):
             net_connect.enable()
             cmd_out = net_connect.send_multiline(cmds)
 
-        os.makedirs(f"./result{datetime.datetime.now():%Y%m%d}", exist_ok=True)
-        with open(os.path.join(f"./result{datetime.datetime.now():%Y%m%d}", f"{ip}.txt"), "w", encoding="utf-8") as tmp_fle:
-            tmp_fle.write(cmd_out + '\n')
+        output_dir = f"./result{datetime.datetime.now():%Y%m%d}"
+        os.makedirs(output_dir, exist_ok=True)
+        with open(os.path.join(output_dir, f"{ip}.txt"), "w", encoding="utf-8") as tmp_fle:
+            tmp_fle.write(cmd_out + "\n")
         print(f"{ip} 执行成功")
         return cmd_out
 
@@ -54,7 +55,7 @@ def execute_commands(device_info):
         print(f"{ip} 用户名密码错误")
     except netmiko.exceptions.NetmikoTimeoutException:
         with open("登录失败列表", "a", encoding="utf-8") as failed_ip:
-            failed_ip.write(f"{ip}    登录超时\n")
+            failed_ip.write(f"{ip}   登录超时\n")
         print(f"{ip} 登录超时")
 
     return None
@@ -69,7 +70,7 @@ def main(argv):
     try:
         opts, args = getopt.getopt(argv, "c:t:", ["excel=", "threads="])
     except getopt.GetoptError:
-        print("Usage: connexec -c <excel_file> -t <num_threads , default:4>")
+        print("Usage: connexec -c <excel_file> -t <num_threads default:4>")
         sys.exit(2)
 
     excel_file = ""
