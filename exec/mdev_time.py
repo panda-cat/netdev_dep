@@ -7,6 +7,7 @@ import pandas as pd
 import getopt
 import os
 import datetime
+from concurrent.futures import ThreadPoolExecutor
 
 
 def load_excel(excel_file):
@@ -15,14 +16,14 @@ def load_excel(excel_file):
     return devices_info
 
 
-def execute_commands(devices_info):
-    ip = devices_info["host"]
-    user = devices_info["username"]
-    dev_type = devices_info["device_type"]
-    passwd = devices_info["password"]
-    secret = devices_info["secret"]
-    read_time = devices_info["readtime"]
-    cmds = list(devices_info["mult_command"].split(";"))
+def execute_commands(devices):
+    ip = devices["host"]
+    user = devices["username"]
+    dev_type = devices["device_type"]
+    passwd = devices["password"]
+    secret = devices["secret"]
+    read_time = devices["readtime"]
+    cmds = list(devices["mult_command"].split(";"))
 
     try:
         net_devices = {
@@ -55,14 +56,14 @@ def execute_commands(devices_info):
         print(f"{ip} 用户名密码错误")
     except netmiko.exceptions.NetmikoTimeoutException:
         with open("登录失败列表", "a", encoding="utf-8") as failed_ip:
-            failed_ip.write(f"{ip}   登录超时\n")
+            failed_ip.write(f"{ip}  登录超时\n")
         print(f"{ip} 登录超时")
 
     return None
 
 
 def multithreaded_execution(devices, num_threads):
-    with multiprocessing.Pool(processes=num_threads) as pool:
+    with ThreadPoolExecutor(num_threads) as pool:
         pool.map(execute_commands, devices)
 
 
