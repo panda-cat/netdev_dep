@@ -16,14 +16,14 @@ def load_excel(excel_file):
     return devices_info
 
 
-def execute_commands(device):
-    ip = device["host"]
-    user = device["username"]
-    dev_type = device["device_type"]
-    passwd = device["password"]
-    secret = device["secret"]
-    read_time = device["readtime"]
-    cmds = list(device["mult_command"].split(";"))
+def execute_commands(devices):
+    ip = devices["host"]
+    user = devices["username"]
+    dev_type = devices["device_type"]
+    passwd = devices["password"]
+    secret = devices["secret"]
+    read_time = devices["readtime"]
+    cmds = list(devices["mult_command"].split(";"))
 
     try:
         net_devices = {
