@@ -7,7 +7,7 @@ import pandas as pd
 import getopt
 import os
 import datetime
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import ThreadPoolExecutor
 
 
 def load_excel(excel_file):
@@ -62,8 +62,8 @@ def execute_commands(devices):
     return None
 
 
-def multiprocessed_execution(devices, num_processes):
-    with ProcessPoolExecutor(num_processes) as pool:
+def multithreaded_execution(devices, num_threads):
+    with ThreadPoolExecutor(num_threads) as pool:
         pool.map(execute_commands, devices)
 
 
@@ -83,7 +83,7 @@ def main(argv):
             num_processes = int(arg)
 
     devices = load_excel(excel_file)
-    multiprocessed_execution(devices, num_processes)
+    multithreaded_execution(devices, num_threads)
 
 
 if __name__ == "__main__":
