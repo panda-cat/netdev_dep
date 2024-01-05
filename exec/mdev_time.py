@@ -80,7 +80,7 @@ def main(argv):
         if opt in ("-c", "--excel"):
             excel_file = arg
         elif opt in ("-t", "--threads"):
-            num_processes = int(arg)
+            num_threads = int(arg)
 
     devices = load_excel(excel_file)
     multithreaded_execution(devices, num_threads)
