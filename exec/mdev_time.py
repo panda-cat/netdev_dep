@@ -57,19 +57,19 @@ def execute_commands(mdev):
         return cmd_out
 
     except netmiko.exceptions.NetmikoAuthenticationException:
-        with open("登录失败列表", "a", encoding="utf-8") as failed_ip:
+        with open("登录失败列表.txt", "a", encoding="utf-8") as failed_ip:
             failed_ip.write(f"{ip} 用户名密码错误\n")
         logging.error(f"{ip} 用户名密码错误")
     except netmiko.exceptions.NetmikoTimeoutException:
-        with open("登录失败列表", "a", encoding="utf-8") as failed_ip:
+        with open("登录失败列表.txt", "a", encoding="utf-8") as failed_ip:
             failed_ip.write(f"{ip} 登录超时\n")
         logging.error(f"{ip} 登录超时")
 
     return None
 
-def multithreaded_execution(devices, num_threads):
+def multithreaded_execution(mdev, num_threads):
     with ThreadPoolExecutor(num_threads) as pool:
-        pool.map(execute_commands, devices)
+        pool.map(execute_commands, mdev)
 
 def main():
     parser = argparse.ArgumentParser()
@@ -84,8 +84,8 @@ def main():
 
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
-    devices = load_excel(args.input)
-    multithreaded_execution(devices, args.threads)
+    mdev = load_excel(args.input)
+    multithreaded_execution(mdev, args.threads)
 
 if __name__ == "__main__":
     main()
