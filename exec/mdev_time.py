@@ -67,8 +67,8 @@ def execute_commands(mdev):
 
     return None
 
-def multithreaded_execution(mdev, num_threads):
-    with ThreadPoolExecutor(num_threads) as pool:
+def multithreaded_execution(mdev, args.threads):
+    with ThreadPoolExecutor(args.threads) as pool:
         pool.map(execute_commands, mdev)
 
 def main():
@@ -78,14 +78,14 @@ def main():
         "-t", "--threads", help="Number of threads to use for parallel execution", type=int, default=4
     )
     parser.add_argument(
-        "-o", "--output", help="Directory to save the command outputs. If not specified, a date-based directory will be created in the current directory."
+        "-o", "--output", help="Directory to save the command outputs. If not specified, a date-based directory will be created in the current directory.", default=None
     )
     args = parser.parse_args()
-
-    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
     mdev = load_excel(args.input)
     multithreaded_execution(mdev, args.threads)
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
     main()
+    
