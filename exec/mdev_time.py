@@ -58,7 +58,7 @@ def execute_commands(devices, nr):
    return None
 
 
-def multithreaded_execution(devices, num_threads):  # num_threads is still accepted but ignored here.
+def multithreaded_execution(devices):
     nr = InitNornir(
         inventory={
             "hosts": {
@@ -79,30 +79,27 @@ def multithreaded_execution(devices, num_threads):  # num_threads is still accep
 
     )
 
-    # we simply invoke the execution method and pass in the Nornir object and list of devices, Nornir handles concurrency.
     for device in devices:
         execute_commands(device, nr)
 
 
 def main(argv):
    try:
-       opts, args = getopt.getopt(argv, "i:t:", ["input=", "threads="])
+       opts, args = getopt.getopt(argv, "i:", ["input="])
    except getopt.GetoptError:
-       print("Usage: main.py -i <excel_file> -t <num_threads default:4>")
+       print("Usage: main.py -i <excel_file>")
        sys.exit(2)
 
    excel_file = ""
-   num_threads = 4 # this variable is not used.
+
    for opt, arg in opts:
        if opt in ("-i", "--input"):
            excel_file = arg
-       elif opt in ("-t", "--threads"):
-           num_threads = int(arg) # this variable is not used.
 
 
    devices = load_excel(excel_file)
    if devices:
-       multithreaded_execution(devices, num_threads) # we still pass num_threads, but it is ignored.
+       multithreaded_execution(devices)
 
 if __name__ == "__main__":
    main(sys.argv[1:])
