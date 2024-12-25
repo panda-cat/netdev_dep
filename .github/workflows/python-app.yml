@@ -29,7 +29,7 @@ jobs:
 
     - name: Build executable
       run: |
-        pip install nornir pyinstaller pandas pd openpyxl
+        pip install nornir nornir-netmiko netmiko pyinstaller pandas pd openpyxl
         python scripts/pyinstaller.py
     - name: Upload executable
       uses: actions/upload-artifact@v3
