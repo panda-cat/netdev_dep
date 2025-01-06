@@ -3,18 +3,36 @@
 
 import netmiko
 import multiprocessing
-import pandas as pd
+import openpyxl  # Import openpyxl
 import getopt
 import os
 import datetime
 from concurrent.futures import ThreadPoolExecutor
-
+import sys  # Import sys if not already present
 
 def load_excel(excel_file):
-   df = pd.read_excel(excel_file, sheet_name="Sheet1")
-   devices_info = df.to_dict(orient="records")
-   return devices_info
+    """Loads device information from an Excel file using openpyxl."""
+    devices_info = []
+    try:
+        workbook = openpyxl.load_workbook(excel_file)
+        sheet = workbook.active  # Assuming data is in the first sheet
 
+        # Get the header row (first row)
+        header = [cell.value for cell in sheet[1]]
+
+        # Iterate through rows starting from the second row
+        for row in sheet.iter_rows(min_row=2, values_only=True):
+            device_data = dict(zip(header, row))
+            devices_info.append(device_data)
+    except FileNotFoundError:
+        print(f"Error: Excel file not found: {excel_file}")
+        sys.exit(1)
+    except Exception as e:
+        print(f"Error reading Excel file: {e}")
+        sys.exit(1)
+    return devices_info
+
+# The rest of your code (execute_commands, multithreaded_execution, main) remains largely the same.
 
 def execute_commands(devices):
    ip = devices["host"]
@@ -35,13 +53,13 @@ def execute_commands(devices):
            "read_timeout_override": read_time,
        }
        net_connect = netmiko.ConnectHandler(**net_devices)
-       
+
        with net_connect:
             if dev_type == "paloalto_panos":
                 cmd_out = net_connect.send_multiline(cmds, expect_string=r">", cmd_verify=False)
             elif dev_type in ("huawei", "huawei_telnet", "hp_comware", "hp_comware_telnet"):
                 cmd_out = net_connect.send_multiline(cmds, cmd_verify=False)
-            elif secret:
+            elif net_devices['secret'] != "":
                 net_connect.enable()
                 cmd_out = net_connect.send_multiline(cmds, cmd_verify=False)
             else:
@@ -65,11 +83,9 @@ def execute_commands(devices):
 
    return None
 
-
 def multithreaded_execution(devices, num_threads):
    with ThreadPoolExecutor(num_threads) as pool:
        pool.map(execute_commands, devices)
-
 
 def main(argv):
    try:
@@ -90,4 +106,4 @@ def main(argv):
    multithreaded_execution(devices, num_threads)
 
 if __name__ == "__main__":
-   main(sys.argv[1:]) 
+   main(sys.argv[1:])
