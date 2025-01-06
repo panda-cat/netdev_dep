@@ -3,21 +3,30 @@
 
 import netmiko
 import multiprocessing
-import pandas as pd
+import openpyxl  # 替换 pandas
 import getopt
 import os
 import datetime
 from concurrent.futures import ThreadPoolExecutor
-
+import sys
 
 
 def load_excel(excel_file):
     """
-    使用 polars 读取 Excel 文件并返回字典列表。
+    使用 openpyxl 读取 Excel 文件并返回字典列表。
     """
     try:
-        df = pd.read_excel(excel_file, sheet_name="Sheet1")
-        devices_info = df.to_dicts(orient="records")
+        workbook = openpyxl.load_workbook(excel_file)
+        sheet = workbook["Sheet1"]
+        header = [cell.value for cell in sheet[1]]
+        if not all(header):
+            return []
+        devices_info = []
+        for row in sheet.iter_rows(min_row=2, values_only=True):
+            if not all(row):
+                continue
+            row_dict = dict(zip(header, row))
+            devices_info.append(row_dict)
         return devices_info
     except FileNotFoundError:
         print(f"错误：找不到文件 '{excel_file}'")
@@ -25,7 +34,6 @@ def load_excel(excel_file):
     except Exception as e:
         print(f"读取 Excel 文件时发生错误：{e}")
         return None
-
 
 def execute_commands(devices):
     ip = devices["host"]
