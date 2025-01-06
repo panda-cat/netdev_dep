@@ -41,7 +41,7 @@ def execute_commands(devices):
                 cmd_out = net_connect.send_multiline(cmds, expect_string=r">", cmd_verify=False)
             elif dev_type in ("huawei", "huawei_telnet", "hp_comware", "hp_comware_telnet"):
                 cmd_out = net_connect.send_multiline(cmds, cmd_verify=False)
-            elif mdev['secret'] != "":
+            elif secret:
                 net_connect.enable()
                 cmd_out = net_connect.send_multiline(cmds, cmd_verify=False)
             else:
