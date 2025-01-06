@@ -3,12 +3,12 @@
 
 import netmiko
 import multiprocessing
-import polars as pl  # 替换 pandas
+import pandas as pd
 import getopt
 import os
 import datetime
 from concurrent.futures import ThreadPoolExecutor
-import sys # 引入 sys
+
 
 
 def load_excel(excel_file):
@@ -16,8 +16,8 @@ def load_excel(excel_file):
     使用 polars 读取 Excel 文件并返回字典列表。
     """
     try:
-        df = pl.read_excel(excel_file, sheet_name="Sheet1")
-        devices_info = df.to_dicts()
+        df = pd.read_excel(excel_file, sheet_name="Sheet1")
+        devices_info = df.to_dicts(orient="records")
         return devices_info
     except FileNotFoundError:
         print(f"错误：找不到文件 '{excel_file}'")
