@@ -3,12 +3,11 @@
 
 import netmiko
 import multiprocessing
-import openpyxl  # 替换 pandas
+import openpyxl
 import getopt
 import os
 import datetime
 from concurrent.futures import ThreadPoolExecutor
-import sys
 
 
 def load_excel(excel_file):
@@ -60,11 +59,10 @@ def execute_commands(devices):
                 cmd_out = net_connect.send_multiline(cmds, expect_string=r">", cmd_verify=False)
             elif dev_type in ("huawei", "huawei_telnet", "hp_comware", "hp_comware_telnet"):
                 cmd_out = net_connect.send_multiline(cmds, cmd_verify=False)
-            elif devices["secret"] != "":
-                net_connect.enable()
-                cmd_out = net_connect.send_multiline(cmds, cmd_verify=False)
             else:
-                cmd_out = net_connect.send_multiline(cmds, cmd_verify=False)
+              if net_devices["secret"]:
+                  net_connect.enable()
+              cmd_out = net_connect.send_multiline(cmds, cmd_verify=False)
 
         output_dir = f"./result{datetime.datetime.now():%Y%m%d}"
         os.makedirs(output_dir, exist_ok=True)
