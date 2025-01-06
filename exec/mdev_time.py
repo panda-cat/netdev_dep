@@ -60,9 +60,9 @@ def execute_commands(devices):
             elif dev_type in ("huawei", "huawei_telnet", "hp_comware", "hp_comware_telnet"):
                 cmd_out = net_connect.send_multiline(cmds, cmd_verify=False)
             else:
-              if net_devices["secret"]:
+              if secret: #  如果secret非空字符串
                   net_connect.enable()
-              cmd_out = net_connect.send_multiline(cmds, cmd_verify=False)
+              cmd_out = net_connect.send_multiline(cmds, cmd_verify=False) # 所有情况都需要发送命令
 
         output_dir = f"./result{datetime.datetime.now():%Y%m%d}"
         os.makedirs(output_dir, exist_ok=True)
