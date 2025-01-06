@@ -49,10 +49,13 @@ def execute_commands(devices):
             "host": ip,
             "username": user,
             "password": passwd,
-            "secret": secret,
+
             "read_timeout_override": read_time,
         }
+        if secret:
+          net_devices["secret"]=secret
         net_connect = netmiko.ConnectHandler(**net_devices)
+
         
         with net_connect:
             if dev_type == "paloalto_panos":
