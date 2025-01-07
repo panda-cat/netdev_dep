@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+#python3 your_script.py -d "192.168.1.1,admin,password,cisco_ios,,show version;show ip int brief" -t 2 -l DEBUG
+#python3 your_script.py -d "192.168.1.1,admin,"password,with,commas",cisco_ios,,show version;show ip int brief" -t 2 -l DEBUG
+#windows python3 your_script.py -i devices.xlsx -t 4 -o .\\result20250107 -l DEBUG
+
+
 import netmiko
 import multiprocessing
 import openpyxl
@@ -65,7 +70,7 @@ def execute_commands(devices):
                     cmd_out = net_connect.send_multiline(cmds, expect_string=r">", cmd_verify=False)
                 elif dev_type in ("huawei", "huawei_telnet", "hp_comware", "hp_comware_telnet"):
                     cmd_out = net_connect.send_multiline(cmds, cmd_verify=False)
-                elif net_devices['secret'] != "":
+                elif secret:
                     net_connect.enable()
                     cmd_out = net_connect.send_multiline(cmds, cmd_verify=False)
                 else:
