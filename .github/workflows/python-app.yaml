@@ -11,7 +11,7 @@ jobs:
       matrix:
         #os: ["windows-latest", "ubuntu-latest", "macOS-latest"]
         os: ["windows-latest"]
-        python-version: ["3.12"]
+        python-version: ["3.9"]
         architecture: ["x64"]
         include:
         - os: "windows-2019"
