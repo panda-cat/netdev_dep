@@ -34,6 +34,6 @@ jobs:
     - name: Upload executable
       uses: actions/upload-artifact@v3
       with:
-        name: connexec-${{ matrix.os }}-${{ matrix.architecture }}-${{ matrix.python-version }}
+        name: netdep-${{ matrix.os }}-${{ matrix.architecture }}-${{ matrix.python-version }}
         path: |
           dist
