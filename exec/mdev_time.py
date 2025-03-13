@@ -9,6 +9,7 @@ import datetime
 from concurrent.futures import ThreadPoolExecutor
 import sys
 from tqdm import tqdm  # 修改导入语句，只导入 tqdm
+import time  # 导入 time 模块
 
 def load_excel(excel_file):
     """从 Excel 文件加载设备信息 (使用 openpyxl)."""
@@ -41,6 +42,8 @@ def execute_commands(devices):
     read_time = devices.get("readtime", 10)
     cfg_file = devices["dev_cfg"]
 
+    start_time = time.time()  # 记录开始时间
+
     try:
         net_devices = {
             "device_type": dev_type,
@@ -52,7 +55,10 @@ def execute_commands(devices):
         }
 
         with netmiko.ConnectHandler(**net_devices) as net_connect:
-            cmd_out = net_connect.send_config_from_file(cfg_file)
+            if secret:
+                net_connect.enable()
+            cmd_out = net_connect.find_prompt()
+            cmd_out += net_connect.send_config_from_file(cfg_file)
             cmd_out += net_connect.save_config()
 
         output_dir = f"./result{datetime.datetime.now():%Y%m%d}"
@@ -71,6 +77,11 @@ def execute_commands(devices):
             failed_ip.write(f"{ip} 登录超时\n")
         print(f"{ip} 登录超时")
 
+    finally:
+        end_time = time.time()  # 记录结束时间
+        elapsed_time = end_time - start_time  # 计算执行时间
+        tqdm.write(f"{ip} 执行时间: {elapsed_time:.2f} 秒")  # 输出执行时间
+
     return False
 
 def multithreaded_execution(devices, num_threads):
@@ -80,11 +91,11 @@ def multithreaded_execution(devices, num_threads):
             future = pool.submit(execute_commands, device)
             device_futures.append((device, future))
 
-        for device, future in tqdm(device_futures, desc="设备执行进度"):
+        for device, future in tqdm(device_futures, desc="设备执行进度", total=len(device_futures)):
             ip = device['host']
             result = future.result()
             if result:
-                tqdm.write(f"{ip} 执行成功") # 移除 colorize，直接打印消息
+                tqdm.write(f"{ip} 执行成功")
 
 def main(argv):
     try:
