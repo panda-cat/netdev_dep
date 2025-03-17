@@ -2,14 +2,12 @@
 # -*- coding: utf-8 -*-
 
 import netmiko
-import openpyxl  # Import openpyxl
+import openpyxl
 import getopt
 import os
 import datetime
-from tqdm import tqdm
-from typing import List
 from concurrent.futures import ThreadPoolExecutor
-import sys  # Import sys if not already present
+import sys
 
 def load_excel(excel_file):
     """Loads device information from an Excel file using openpyxl."""
@@ -33,7 +31,7 @@ def load_excel(excel_file):
         sys.exit(1)
     return devices_info
 
-# The rest of your code (execute_commands, multithreaded_execution, main) remains largely the same.
+
 
 def execute_commands(devices):
    ip = devices["host"]
@@ -87,14 +85,7 @@ def execute_commands(devices):
 
 def multithreaded_execution(devices, num_threads):
    with ThreadPoolExecutor(num_threads) as pool:
-       all_results = list(tqdm(pool.map(execute_commands, devices),
-                               total=len(devices),
-                               desc="执行进度",
-                               unit="台"))
-        
-       # 统计结果
-       success = sum(1 for r in all_results if r is not None)
-       print(f"\n执行完成: {success}台成功, {len(devices)-success}台失败")
+       pool.map(execute_commands, devices)
 
 def main(argv):
    try:
