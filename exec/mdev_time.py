@@ -92,9 +92,9 @@ def multithreaded_execution(devices, num_threads):
                                desc="执行进度",
                                unit="台"))
         
-        # 统计结果
-        success = sum(1 for r in all_results if r is not None)
-        print(f"\n执行完成: {success}台成功, {len(devices)-success}台失败")
+       # 统计结果
+       success = sum(1 for r in all_results if r is not None)
+       print(f"\n执行完成: {success}台成功, {len(devices)-success}台失败")
 
 def main(argv):
    try:
