@@ -173,7 +173,7 @@ def batch_execute(devices: List[Dict], max_workers: int = 4):
 def main(argv):
     """命令行入口"""
     usage = """
-网络设备批量配置工具 v2.3
+网络设备批量配置工具 v2.4
 
 功能特性:
 - 多线程安全执行
@@ -182,11 +182,19 @@ def main(argv):
 - 结果自动归档
 
 使用方法:
-  connexec.py -i <设备清单.xlsx> [-t 并发数]
+  connexec -i <设备清单.xlsx> [-t 并发数]
 
 参数说明:
   -i, --input    必需  Excel文件路径
-  -t, --threads  可选  并发线程数(1-20)，默认4
+  -t, --threads  可选  并发线程线程（最小值1，默认4）
+
+示例excel模板:
+  host	        username  password	  device_type  secret	readtime  mult_command
+  192.168.1.1	admin	  Cisco@123	  cisco_ios	   enable	15	      show version;show run
+  10.10.1.1	    huawei	  HuaWei@123  huawei		        10	      display version;dis cur
+
+关于netmiko支持平台:
+  https://github.com/ktbyers/netmiko/blob/develop/PLATFORMS.md
 """
     
     try:
@@ -205,7 +213,7 @@ def main(argv):
         elif opt in ("-i", "--input"):
             excel_file = arg
         elif opt in ("-t", "--threads"):
-            threads = max(1, min(int(arg), 20))
+            threads = max(1, int(arg))
             
     if not excel_file or not os.path.exists(excel_file):
         print(usage)
