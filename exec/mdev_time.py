@@ -189,9 +189,9 @@ def main(argv):
   -t, --threads  可选  并发线程线程（最小值1，默认4）
 
 示例excel模板:
-  host	        username  password	  device_type  secret	readtime  mult_command
-  192.168.1.1	admin	  Cisco@123	  cisco_ios	   enable	15	      show version;show run
-  10.10.1.1	    huawei	  HuaWei@123  huawei		        10	      display version;dis cur
+  host          username  password    device_type  secret   readtime  mult_command
+  192.168.1.1   admin     Cisco@123   cisco_ios    enable   15        show version;show run
+  10.10.1.1     huawei    HuaWei@123  huawei                10        display version;dis cur
 
 关于netmiko支持平台:
   https://github.com/ktbyers/netmiko/blob/develop/PLATFORMS.md
