@@ -102,6 +102,9 @@ def execute_commands(device: Dict) -> str:
             return None
             
         with conn:
+            
+            conn.send_command_timing('')
+
             if device['device_type'] == 'paloalto_panos':
                 output = conn.send_multiline(cmds, expect_string=r">", cmd_verify=False)
             else:
