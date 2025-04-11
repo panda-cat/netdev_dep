@@ -19,7 +19,7 @@ from netmiko import NetmikoTimeoutException, NetmikoAuthenticationException
 # 环境配置
 os.environ["NO_COLOR"] = "1"  # 禁用彩色输出
 write_lock = Lock()           # 全局写入锁
-DEFAULT_THREADS = min(8, max(4, (os.cpu_count() or 4)))  # 动态线程数
+DEFAULT_THREADS = min(500, max(4, (os.cpu_count() or 4)))  # 动态线程数
 
 def thread_initializer() -> None:
     """线程初始化函数（解决编码问题）"""
@@ -240,7 +240,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument('-i', '--input', required=True, 
                        help='设备清单Excel文件路径')
     parser.add_argument('-t', '--threads', type=int, default=DEFAULT_THREADS,
-                       help=f'并发线程数 (默认: {DEFAULT_THREADTS}, 范围: 1-8)')
+                       help=f'并发线程数 (默认: {DEFAULT_THREADS}, 范围：1-100)')
     parser.add_argument('-cs', '--config_set', action='store_true',
                        help='使用配置模式发送命令')
     parser.add_argument('-d', '--destination', type=str, default='./',
