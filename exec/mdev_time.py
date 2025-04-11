@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+# 预加载解决编码问题
+import encodings.idna  # noqa: F401
+
 import netmiko
 import openpyxl
 import argparse
@@ -13,196 +16,166 @@ import tempfile
 from typing import List, Dict, Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from threading import Lock
-from tqdm import tqdm
 import encodings.idna
+from tqdm import tqdm
 from netmiko import NetmikoTimeoutException, NetmikoAuthenticationException
 
 # 环境配置
-os.environ["NO_COLOR"] = "1"  # 禁用彩色输出
-write_lock = Lock()           # 全局写入锁
-DEFAULT_THREADS = min(500, max(4, (os.cpu_count() or 4)))  # 动态线程数
+os.environ["NO_COLOR"] = "1"
+write_lock = Lock()
+DEFAULT_THREADS = min(900, max(4, (os.cpu_count() or 4)))  # 线程上限提升至900
 
 def thread_initializer() -> None:
-    """线程初始化函数（解决编码问题）"""
-    import encodings.idna  # noqa: F401
+    """增强型线程初始化"""
+    import encodings.idna
     # 显式调用确保模块加载
     encodings.idna.__name__  # 防止被优化
     encodings.idna.__file__  # 触发实际导入
 
 def sanitize_filename(name: str) -> str:
-    """生成安全文件名（带唯一标识）"""
-    clean_name = re.sub(r'[<>:"/\\|?*]', '', name).strip()
-    unique_id = uuid.uuid4().hex[:6]
-    return f"{clean_name[:45]}_{unique_id}"
+    """安全文件名生成（保留特殊字符）"""
+    clean_name = re.sub(r'[\\/*?:"<>|]', '', name).strip()
+    return clean_name[:60]  # 延长文件名限制
 
 def validate_device_data(device: Dict[str, str], row_idx: int) -> None:
-    """验证设备数据完整性"""
-    required_fields = ['host', 'username', 'password', 'device_type']
-    missing = [f for f in required_fields if not device.get(f)]
-    if missing:
-        raise ValueError(f"Row {row_idx} missing fields: {', '.join(missing)}")
+    """设备数据验证"""
+    required = ['host', 'username', 'password', 'device_type']
+    if missing := [f for f in required if not device.get(f)]:
+        raise ValueError(f"Row {row_idx} 缺失字段: {', '.join(missing)}")
 
 def load_excel(excel_file: str) -> List[Dict[str, str]]:
-    """加载并验证Excel设备信息（内存优化版）"""
+    """Excel加载（内存优化版）"""
     devices = []
-    errors = []
     try:
-        # 使用只读模式优化内存
-        wb = openpyxl.load_workbook(excel_file, read_only=True)
-        sheet = wb.active
-        
-        headers = [str(cell.value).lower().strip() for cell in sheet[1]]
-        required = ['host', 'username', 'password', 'device_type']
-        if any(f not in headers for f in required):
-            raise ValueError(f"Missing required columns: {', '.join(required)}")
-
-        for row_idx, row in enumerate(sheet.iter_rows(min_row=2, values_only=True), start=2):
-            try:
+        with openpyxl.load_workbook(excel_file, read_only=True) as wb:
+            sheet = wb.active
+            headers = [str(cell.value).lower().strip() for cell in sheet[1]]
+            
+            # 验证必要列
+            required = ['host', 'username', 'password', 'device_type']
+            if any(f not in headers for f in required):
+                raise ValueError(f"缺少必要列: {', '.join(required)}")
+            
+            # 处理数据行
+            for row_idx, row in enumerate(sheet.iter_rows(min_row=2, values_only=True), 2):
                 device = {k: str(v).strip() if v else "" for k, v in zip(headers, row)}
                 validate_device_data(device, row_idx)
                 devices.append(device)
-            except ValueError as e:
-                errors.append(str(e))
-        
-        if errors:
-            print("Excel数据校验错误:\n" + "\n".join(errors))
-            sys.exit(1)
-            
+                
         return devices
-        
     except Exception as e:
-        print(f"Excel处理失败: {str(e)}")
+        print(f"Excel处理错误: {str(e)}")
         sys.exit(1)
-    finally:
-        if 'wb' in locals():
-            wb.close()
 
 def connect_device(device: Dict[str, str]) -> Optional[netmiko.BaseConnection]:
-    """建立设备连接（带异常分类处理）"""
+    """增强型设备连接"""
     params = {
         'device_type': device['device_type'],
         'host': device['host'],
         'username': device['username'],
         'password': device['password'],
         'secret': device.get('secret', ''),
-        'read_timeout_override': int(device.get('readtime', 15)),
+        'session_log': 'netmiko.log' if device.get('debug') else None,
+        'read_timeout_override': int(device.get('readtime', 20)),
         'fast_cli': False
     }
     
-    conn = None
     try:
         conn = netmiko.ConnectHandler(**params)
-        if device.get('secret'):
+        if params['secret']:
             conn.enable()
         return conn
-    except NetmikoTimeoutException as e:
-        log_error(device['host'], f"Connection timeout: {str(e)}")
-    except NetmikoAuthenticationException as e:
-        log_error(device['host'], f"Authentication failed: {str(e)}")
+    except (NetmikoTimeoutException, NetmikoAuthenticationException) as e:
+        log_error(device['host'], f"{e.__class__.__name__}: {str(e)}")
     except Exception as e:
-        log_error(device['host'], f"Connection error: {str(e)}")
-    finally:
-        if conn is not None and not conn.is_alive():
-            conn.disconnect()
+        log_error(device['host'], f"连接异常: {str(e)}")
     return None
 
 def execute_commands(device: Dict[str, str], config_set: bool) -> Optional[str]:
-    """执行设备命令主逻辑（增强异常处理）"""
-    ip = device['host']
+    """命令执行（含主机名解析）"""
     try:
-        cmds = [c.strip() for c in device.get('mult_command', '').split(';') if c.strip()]
-        if not cmds:
-            print(f"{ip} [WARN] No valid commands")
+        if not (cmds := [c.strip() for c in device.get('mult_command', '').split(';') if c.strip()]):
+            print(f"{device['host']} [WARN] 无有效命令")
             return None
             
-        if (conn := connect_device(device)) is None:
+        if not (conn := connect_device(device)):
             return None
             
         with conn:
-            # 发送初始化空命令清空缓冲区
-            conn.send_command_timing('')
-
-            if config_set:
-                output = conn.send_config_set(cmds, cmd_verify=False)
-            else:
-                if device['device_type'] == 'paloalto_panos':
-                    output = conn.send_multiline(cmds, expect_string=r">", cmd_verify=False)
+            # 获取设备主机名
+            try:
+                prompt = conn.find_prompt().strip()
+                for pattern in [r'\S+?([\w-]+)[#>]', r'$$
+(.*?)
+$$']:
+                    if match := re.search(pattern, prompt):
+                        device['hostname'] = sanitize_filename(match.group(1))
+                        break
                 else:
-                    output = conn.send_multiline(cmds, cmd_verify=False)
+                    device['hostname'] = 'unknown'
+            except Exception:
+                device['hostname'] = 'unknown'
 
-            # 基本结果验证
-            if "Invalid input" in output:
-                log_error(ip, "Command validation failed")
-                return None
-                
+            # 执行命令
+            output = conn.send_config_set(cmds, cmd_verify=False) if config_set else conn.send_multiline(
+                cmds, 
+                expect_string=r'>' if 'panos' in device['device_type'] else None
+            )
+            
             return output
             
     except Exception as e:
-        log_error(ip, f"Command execution error: {str(e)}")
+        log_error(device['host'], f"执行异常: {str(e)}")
         return None
 
-def save_result(ip: str, prompt: str, output: str, dest_path: str) -> None:
-    """原子化保存执行结果"""
+def save_result(ip: str, hostname: str, output: str, dest_path: str) -> None:
+    """增强型结果保存"""
     date_str = datetime.datetime.now().strftime('%Y%m%d')
-    hname = sanitize_filename(prompt.strip('#<>[]*:?'))
-    
     output_dir = os.path.join(dest_path, f"result_{date_str}")
     os.makedirs(output_dir, exist_ok=True)
     
-    filename = f"{sanitize_filename(ip)}_{hname}.txt"
-    final_path = os.path.join(output_dir, filename)
-    content = f"=== 设备 {ip} 执行结果 ===\n{output}"
-
+    filename = f"{sanitize_filename(ip)}_{hostname or 'unknown'}.txt"
+    content = f"=== {ip} ({hostname}) 执行结果 ===\n{output}"
+    
     try:
-        # 使用临时文件确保原子写入
         with tempfile.NamedTemporaryFile(
             mode='w', 
             encoding='utf-8',
-            delete=False,
+            delete=False, 
             dir=output_dir
         ) as tmp_file:
             tmp_file.write(content)
             tmp_path = tmp_file.name
             
-        os.rename(tmp_path, final_path)
+        os.rename(tmp_path, os.path.join(output_dir, filename))
     except OSError as e:
-        log_error(ip, f"File save failed: {str(e)}")
+        log_error(ip, f"文件保存失败: {str(e)}")
 
 def log_error(ip: str, error: str) -> None:
-    """安全日志记录（过滤敏感信息）"""
-    timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    # 过滤敏感信息
-    sanitized_error = re.sub(
-        r'(password|secret)\s*=\s*\S+', 
-        r'\1=***', 
-        error, 
-        flags=re.IGNORECASE
-    )
-    msg = f"{timestamp} | {ip} | {sanitized_error}"
+    """安全日志记录"""
+    sanitized = re.sub(r'(password|secret)\s*=\s*\S+', r'\1=***', error, flags=re.I)
+    log_line = f"{datetime.datetime.now():%Y-%m-%d %H:%M:%S} | {ip} | {sanitized}"
     
     with write_lock:
-        with open("error_log.txt", 'a', encoding='utf-8') as f:
-            f.write(msg + '\n')
-        print(f"{ip} [ERROR] {sanitized_error}")
+        with open("error.log", 'a', encoding='utf-8') as f:
+            f.write(log_line + '\n')
+        print(f"{ip} [ERROR] {sanitized}")
 
 def batch_execute(
-    devices: List[Dict[str, str]], 
-    config_set: bool, 
-    max_workers: int = DEFAULT_THREADS, 
+    devices: List[Dict[str, str]],
+    config_set: bool,
+    max_workers: int = DEFAULT_THREADS,
     destination: str = './'
 ) -> None:
-    """批量执行入口（改进进度显示）"""
+    """增强型批量执行"""
     with ThreadPoolExecutor(
-        max_workers=max_workers, 
+        max_workers=max_workers,
         initializer=thread_initializer
     ) as executor:
         try:
-            futures = {
-                executor.submit(execute_commands, dev, config_set): dev
-                for dev in devices
-            }
-            
+            futures = {executor.submit(execute_commands, dev, config_set): dev for dev in devices}
             success = 0
+            
             with tqdm(
                 total=len(devices),
                 desc="执行进度",
@@ -212,11 +185,10 @@ def batch_execute(
                 for future in as_completed(futures):
                     dev = futures[future]
                     try:
-                        result = future.result()
-                        if result is not None:
+                        if (result := future.result()) is not None:
                             save_result(
-                                dev['host'], 
-                                dev.get('prompt', 'unknown'),
+                                dev['host'],
+                                dev.get('hostname', 'unknown'),
                                 result,
                                 destination
                             )
@@ -226,7 +198,7 @@ def batch_execute(
                     finally:
                         pbar.update(1)
                         
-            print(f"\n执行完成: 成功 {success} 台 | 失败 {len(devices)-success} 台")
+            print(f"\n完成: 成功 {success}/{len(devices)}")
             
         except KeyboardInterrupt:
             print("\n安全终止中...")
@@ -234,25 +206,25 @@ def batch_execute(
             sys.exit(1)
 
 def parse_args() -> argparse.Namespace:
-    """改进的命令行解析"""
+    """命令行解析（解除线程限制）"""
     parser = argparse.ArgumentParser(
-        description="网络设备批量配置工具 v2.5",
+        description="网络设备批量管理工具 v3.0",
         add_help=False,
         formatter_class=argparse.RawTextHelpFormatter
     )
     
-    parser.add_argument('-i', '--input', required=True, 
-                       help='设备清单Excel文件路径')
-    parser.add_argument('-t', '--threads', type=int, default=DEFAULT_THREADS,
-                       help=f'并发线程数 (默认: {DEFAULT_THREADS}, 范围：1-100)')
-    parser.add_argument('-cs', '--config_set', action='store_true',
+    parser.add_argument('-i', '--input', required=True, help='设备清单Excel路径')
+    parser.add_argument('-t', '--threads', type=int, default=DEFAULT_THREADS, 
+                       help=f'并发线程数 (默认: {DEFAULT_THREADS})')
+    parser.add_argument('-cs', '--config_set', action='store_true', 
                        help='使用配置模式发送命令')
-    parser.add_argument('-d', '--destination', type=str, default='./',
+    parser.add_argument('-d', '--destination', default='./', 
                        help='结果保存路径 (默认: 当前目录)')
-    parser.add_argument('-h', '--help', action='store_true',
-                       help='显示帮助信息')
-
-    help_text = """
+    parser.add_argument('--debug', action='store_true', 
+                       help='启用调试日志')
+    
+    if '--help' in sys.argv:
+        print("""
 使用方法:
   connexec -i <设备清单.xlsx> [-t 并发数]
 
@@ -260,7 +232,7 @@ def parse_args() -> argparse.Namespace:
   -i, --input        必需  Excel文件路径
   -t, --threads      可选  并发线程线程（最小值1，默认4）
   -cs, --config_set  可选  自动进入设备配置模式，并发送命令
-  -d, --destination  可选  保存输出结果的目标目录路径
+  -d, --destination  可选  保存输出结果的目标目录路径，默认: 当前目录
 
 示例Excel格式:
 +-------------+----------+------------+--------------+--------+----------+------------------------+
@@ -272,44 +244,25 @@ def parse_args() -> argparse.Namespace:
 
 支持平台列表参考:
 https://github.com/ktbyers/netmiko/blob/develop/PLATFORMS.md
-"""
-    
-    if '--help' in sys.argv or '-h' in sys.argv:
-        print(help_text)
+""")
         sys.exit(0)
         
     return parser.parse_args()
 
 def main() -> None:
-    """主入口函数"""
-    # 编码调试代码
-    try:
-        "test".encode('idna')
-    except LookupError:
-        print("IDNA编码支持异常，请检查Python环境")
-        sys.exit(1)
-        
+    """主入口"""
     args = parse_args()
     
     if not os.path.exists(args.input):
         print(f"错误: 文件不存在 [{args.input}]")
         sys.exit(1)
         
-    if args.threads < 1 or args.threads > 8:
-        print("错误: 线程数必须在1-8之间")
-        sys.exit(1)
-
     try:
         devices = load_excel(args.input)
         print(f"成功加载设备: {len(devices)} 台")
-        batch_execute(
-            devices, 
-            args.config_set, 
-            args.threads, 
-            args.destination
-        )
+        batch_execute(devices, args.config_set, args.threads, args.destination)
     except KeyboardInterrupt:
-        print("\n操作已中止")
+        print("\n用户终止")
         sys.exit(0)
 
 if __name__ == "__main__":
