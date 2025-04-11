@@ -44,28 +44,38 @@ def validate_device_data(device: Dict[str, str], row_idx: int) -> None:
         raise ValueError(f"Row {row_idx} 缺失字段: {', '.join(missing)}")
 
 def load_excel(excel_file: str) -> List[Dict[str, str]]:
-    """Excel加载（内存优化版）"""
+    """修复后的Excel加载函数"""
     devices = []
+    wb = None
     try:
-        with openpyxl.load_workbook(excel_file, read_only=True) as wb:
-            sheet = wb.active
-            headers = [str(cell.value).lower().strip() for cell in sheet[1]]
-            
-            # 验证必要列
-            required = ['host', 'username', 'password', 'device_type']
-            if any(f not in headers for f in required):
-                raise ValueError(f"缺少必要列: {', '.join(required)}")
-            
-            # 处理数据行
-            for row_idx, row in enumerate(sheet.iter_rows(min_row=2, values_only=True), 2):
-                device = {k: str(v).strip() if v else "" for k, v in zip(headers, row)}
+        # 正确加载方式
+        wb = openpyxl.load_workbook(excel_file, read_only=True)
+        sheet = wb.active
+        
+        # 验证表头
+        headers = [str(cell.value).lower().strip() for cell in sheet[1]]
+        required = ['host', 'username', 'password', 'device_type']
+        if missing := [f for f in required if f not in headers]:
+            raise ValueError(f"缺少必要列: {', '.join(missing)}")
+
+        # 处理数据行
+        for row_idx, row in enumerate(sheet.iter_rows(min_row=2, values_only=True), 2):
+            try:
+                device = {headers[i]: str(cell).strip() if cell else "" for i, cell in enumerate(row)}
                 validate_device_data(device, row_idx)
                 devices.append(device)
+            except ValueError as e:
+                print(f"行 {row_idx} 数据错误: {str(e)}")
+                sys.exit(1)
                 
         return devices
+        
     except Exception as e:
-        print(f"Excel处理错误: {str(e)}")
+        print(f"Excel处理失败: {str(e)}")
         sys.exit(1)
+    finally:
+        if wb:  # 显式关闭工作簿
+            wb.close()
 
 def connect_device(device: Dict[str, str]) -> Optional[netmiko.BaseConnection]:
     """增强型设备连接"""
@@ -221,7 +231,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument('--debug', action='store_true', 
                        help='启用调试日志')
     
-    if '--help' in sys.argv:
+    if '--help' in sys.argv or '-h' in sys.argv:
         print("""
 使用方法:
   connexec -i <设备清单.xlsx> [-t 并发数]
