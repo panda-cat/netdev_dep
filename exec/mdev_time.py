@@ -14,6 +14,7 @@ from typing import List, Dict, Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from threading import Lock
 from tqdm import tqdm
+import encodings.idna
 from netmiko import NetmikoTimeoutException, NetmikoAuthenticationException
 
 # 环境配置
@@ -24,6 +25,9 @@ DEFAULT_THREADS = min(500, max(4, (os.cpu_count() or 4)))  # 动态线程数
 def thread_initializer() -> None:
     """线程初始化函数（解决编码问题）"""
     import encodings.idna  # noqa: F401
+    # 显式调用确保模块加载
+    encodings.idna.__name__  # 防止被优化
+    encodings.idna.__file__  # 触发实际导入
 
 def sanitize_filename(name: str) -> str:
     """生成安全文件名（带唯一标识）"""
@@ -249,6 +253,15 @@ def parse_args() -> argparse.Namespace:
                        help='显示帮助信息')
 
     help_text = """
+使用方法:
+  connexec -i <设备清单.xlsx> [-t 并发数]
+
+参数说明:
+  -i, --input        必需  Excel文件路径
+  -t, --threads      可选  并发线程线程（最小值1，默认4）
+  -cs, --config_set  可选  自动进入设备配置模式，并发送命令
+  -d, --destination  可选  保存输出结果的目标目录路径
+
 示例Excel格式:
 +-------------+----------+------------+--------------+--------+----------+------------------------+
 |    host     | username |  password  | device_type  | secret | readtime |      mult_command      |
@@ -269,6 +282,13 @@ https://github.com/ktbyers/netmiko/blob/develop/PLATFORMS.md
 
 def main() -> None:
     """主入口函数"""
+    # 编码调试代码
+    try:
+        "test".encode('idna')
+    except LookupError:
+        print("IDNA编码支持异常，请检查Python环境")
+        sys.exit(1)
+        
     args = parse_args()
     
     if not os.path.exists(args.input):
