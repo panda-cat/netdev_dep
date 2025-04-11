@@ -105,9 +105,7 @@ def execute_commands(device: Dict[str, str], config_set: bool) -> Optional[str]:
             # 获取设备主机名
             try:
                 prompt = conn.find_prompt().strip()
-                for pattern in [r'\S+?([\w-]+)[#>]', r'$$
-(.*?)
-$$']:
+                for pattern in [r'\S+?([\w-]+)[#>]', r'$$(.*?)$$']:
                     if match := re.search(pattern, prompt):
                         device['hostname'] = sanitize_filename(match.group(1))
                         break
