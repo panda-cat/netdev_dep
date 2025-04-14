@@ -1,9 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-# 预加载解决编码问题
-import encodings.idna  # noqa: F401
-
 import netmiko
 import openpyxl
 import argparse
@@ -89,7 +86,7 @@ def connect_device(device: Dict[str, str]) -> Optional[netmiko.BaseConnection]:
         'username': device['username'],
         'password': device['password'],
         'secret': device.get('secret', ''),
-        'session_log': open('netmiko.log', mode='a', encoding='utf-8') if device.get('debug') else None,
+        'session_log': 'netmiko.log' if device.get('debug') else None,
         'read_timeout_override': int(device.get('readtime', 20)),
         'fast_cli': False
     }
