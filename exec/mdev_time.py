@@ -38,27 +38,37 @@ def validate_device_data(device: Dict[str, str], row_idx: int) -> None:
         raise ValueError(f"Row {row_idx} 缺失字段: {', '.join(missing)}")
 
 def load_excel(excel_file: str, sheet_name: str = 'Sheet1') -> List[Dict[str, str]]:
-    """加载Excel设备清单（线程安全）"""
+    """加载Excel设备清单（线程安全+版本兼容）"""
     devices = []
+    wb = None
     try:
-        with openpyxl.load_workbook(excel_file, read_only=True) as wb:
-            if sheet_name not in wb.sheetnames:
-                raise ValueError(f"工作表 '{sheet_name}' 不存在")
-            sheet = wb[sheet_name]
-            
-            headers = [str(cell.value).lower().strip() for cell in sheet[1]]
-            required = ['host', 'username', 'password', 'device_type']
-            if missing := [f for f in required if f not in headers]:
-                raise ValueError(f"缺少必要列: {', '.join(missing)}")
+        # 方式1：直接加载（兼容旧版）
+        wb = openpyxl.load_workbook(excel_file, read_only=True)
+        
+        # 方式2：如果升级到openpyxl>=3.0可改用：
+        # with openpyxl.load_workbook(excel_file, read_only=True) as wb:
+        
+        if sheet_name not in wb.sheetnames:
+            raise ValueError(f"工作表 '{sheet_name}' 不存在")
+        sheet = wb[sheet_name]
+        
+        headers = [str(cell.value).lower().strip() for cell in sheet[1]]
+        required = ['host', 'username', 'password', 'device_type']
+        if missing := [f for f in required if f not in headers]:
+            raise ValueError(f"缺少必要列: {', '.join(missing)}")
 
-            for row_idx, row in enumerate(sheet.iter_rows(min_row=2, values_only=True), 2):
-                device = {headers[i]: str(cell).strip() if cell else "" for i, cell in enumerate(row)}
-                validate_device_data(device, row_idx)
-                devices.append(device)
+        for row_idx, row in enumerate(sheet.iter_rows(min_row=2, values_only=True), 2):
+            device = {headers[i]: str(cell).strip() if cell else "" for i, cell in enumerate(row)}
+            validate_device_data(device, row_idx)
+            devices.append(device)
+            
         return devices
     except Exception as e:
         print(f"Excel处理失败: {str(e)}")
         sys.exit(1)
+    finally:
+        if wb:  # 确保资源释放
+            wb.close()
 
 def connect_device(device: Dict[str, str]) -> Optional[netmiko.BaseConnection]:
     """设备连接（自动生成独立日志文件）"""
