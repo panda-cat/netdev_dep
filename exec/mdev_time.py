@@ -179,43 +179,43 @@ def batch_execute(
     max_workers: int = DEFAULT_THREADS,
     destination: str = './'
 ) -> None:
-    """增强型批量执行"""
-    with ThreadPoolExecutor(
-        max_workers=max_workers,
-        initializer=thread_initializer
-    ) as executor:
-        try:
+    """增强型批量执行（安全处理Ctrl+C）"""
+    try:
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = {executor.submit(execute_commands, dev, config_set): dev for dev in devices}
             success = 0
             
-            with tqdm(
+            # 将 tqdm 进度条提取为变量，便于手动关闭
+            progress_bar = tqdm(
                 total=len(devices),
                 desc="执行进度",
                 unit="台",
                 dynamic_ncols=True
-            ) as pbar:
+            )
+            
+            try:
                 for future in as_completed(futures):
                     dev = futures[future]
                     try:
                         if (result := future.result()) is not None:
-                            save_result(
-                                dev['host'],
-                                dev.get('hostname', 'unknown'),
-                                result,
-                                destination
-                            )
+                            save_result(dev['host'], dev.get('hostname', 'unknown'), result, destination)
                             success += 1
                     except Exception as e:
                         log_error(dev['host'], str(e))
                     finally:
-                        pbar.update(1)
-                        
-            print(f"\n完成: 成功 {success}/{len(devices)}")
-            
-        except KeyboardInterrupt:
-            print("\n安全终止中...")
-            executor.shutdown(wait=False, cancel_futures=True)
-            sys.exit(1)
+                        progress_bar.update(1)
+                
+                progress_bar.close()  # 正常完成后手动关闭进度条
+                print(f"\n完成: 成功 {success}/{len(devices)}")
+                
+            except KeyboardInterrupt:
+                print("\n安全终止中...")
+                progress_bar.close()  # 终止时手动关闭进度条
+                executor.shutdown(wait=False, cancel_futures=True)  # 立即停止所有线程
+                raise  # 重新抛出异常以便外层捕获
+                
+    except KeyboardInterrupt:
+        sys.exit(0)  # 干净退出
 
 def parse_args() -> argparse.Namespace:
     """命令行解析（解除线程限制）"""
