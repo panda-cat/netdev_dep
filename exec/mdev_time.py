@@ -43,14 +43,18 @@ def validate_device_data(device: Dict[str, str], row_idx: int) -> None:
     if missing := [f for f in required if not device.get(f)]:
         raise ValueError(f"Row {row_idx} 缺失字段: {', '.join(missing)}")
 
-def load_excel(excel_file: str) -> List[Dict[str, str]]:
-    """修复后的Excel加载函数"""
+def load_excel(excel_file: str, sheet_name: str = 'Sheet1') -> List[Dict[str, str]]:
+    """修复后的Excel加载函数（支持指定工作表）"""
     devices = []
     wb = None
     try:
         # 正确加载方式
         wb = openpyxl.load_workbook(excel_file, read_only=True)
-        sheet = wb.active
+        
+        # 根据 sheet_name 获取工作表（不存在时报错）
+        if sheet_name not in wb.sheetnames:
+            raise ValueError(f"工作表 '{sheet_name}' 不存在，可用工作表: {', '.join(wb.sheetnames)}")
+        sheet = wb[sheet_name]
         
         # 验证表头
         headers = [str(cell.value).lower().strip() for cell in sheet[1]]
@@ -230,6 +234,8 @@ def parse_args() -> argparse.Namespace:
                        help='结果保存路径 (默认: 当前目录)')
     parser.add_argument('--debug', action='store_true', 
                        help='启用调试日志')
+    parser.add_argument('-s', '--sheet', default='Sheet1',
+                       help='指定Excel工作表名称（默认: Sheet1）')
     
     if '--help' in sys.argv or '-h' in sys.argv:
         print("""
@@ -241,6 +247,7 @@ def parse_args() -> argparse.Namespace:
   -t, --threads      可选  并发线程线程（最小值1，默认4）
   -cs, --config_set  可选  自动进入设备配置模式，并发送命令
   -d, --destination  可选  保存输出结果的目标目录路径，默认: 当前目录
+  -s, --sheet        可选  指定excel中的sheet名称，默认: Sheet1
 
 示例Excel格式:
 +-------------+----------+------------+--------------+--------+----------+------------------------+
@@ -266,8 +273,9 @@ def main() -> None:
         sys.exit(1)
         
     try:
-        devices = load_excel(args.input)
-        print(f"成功加载设备: {len(devices)} 台")
+        # 传递 sheet_name 参数
+        devices = load_excel(args.input, args.sheet)
+        print(f"成功加载设备: {len(devices)} 台 (工作表: {args.sheet})")
         batch_execute(devices, args.config_set, args.threads, args.destination)
     except KeyboardInterrupt:
         print("\n用户终止")
