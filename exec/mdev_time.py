@@ -554,9 +554,7 @@ def extract_hostname(conn: netmiko.BaseConnection, device_type: str, vendor: str
             'paloalto': [r'(\S+?)[@#>]', r'$(\S+?)$', r'(\S+)[@#>]'],
             'fortinet': [r'$(\S+?)$', r'(\S+?)[#>]', r'(\S+)-'],
             'juniper': [r'(\S+?)[@#>]', r'(\S+?)%'],
-            'mikrotik': [r'$$
-(\S+?)
-$$', r'(\S+?)>'],
+            'mikrotik': [r'$$(\S+?)$$', r'(\S+?)>'],
             'linux': [r'(\S+?)[@#$]', r'(\S+?):'],
             'f5': [r'$(\S+?)$', r'(\S+?)#'],
             'default': [r'(\S*?)([\w.-]+)[#>@$]', r'(\S+?)[#>]', r'(\w+)']
