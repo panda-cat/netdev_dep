@@ -614,20 +614,20 @@ def execute_show_commands(conn: netmiko.BaseConnection, cmds: List[str], device_
         try:
             # **设备特定的命令发送方式**
             if vendor == 'paloalto':
-                output = conn.send_command(cmd, expect_string=r'[#>]', delay_factor=delay_factor, max_loops=200)
+                output = conn.send_command(cmd, cmd_verify=False, expect_string=r'[#>]', delay_factor=delay_factor, max_loops=200)
             elif vendor == 'fortinet':
-                output = conn.send_command(cmd, delay_factor=delay_factor, max_loops=150)
+                output = conn.send_command(cmd, cmd_verify=False, delay_factor=delay_factor, max_loops=150)
             elif vendor == 'juniper':
-                output = conn.send_command(cmd, delay_factor=delay_factor, strip_prompt=False)
+                output = conn.send_command(cmd, cmd_verify=False, delay_factor=delay_factor, strip_prompt=False)
             elif vendor == 'mikrotik':
-                output = conn.send_command(cmd, expect_string=r'[>\]]\s*$', delay_factor=delay_factor)
+                output = conn.send_command(cmd, cmd_verify=False, expect_string=r'[>\]]\s*$', delay_factor=delay_factor)
             elif device_type.startswith('linux'):
-                output = conn.send_command(cmd, expect_string=r'[#$]\s*$', delay_factor=delay_factor)
-            elif vendor == 'h3c'
-                output = conn.send_command(cmd, expect_string=r'[#>]', delay_factor=delay_factor, max_loops=200)
+                output = conn.send_command(cmd, cmd_verify=False, expect_string=r'[#$]\s*$', delay_factor=delay_factor)
+            elif vendor == 'h3c':
+                output = conn.send_command(cmd, cmd_verify=False, expect_string=r'[#>]', delay_factor=delay_factor, max_loops=200)
             else:
                 # 标准命令发送
-                output = conn.send_command(cmd, delay_factor=delay_factor)
+                output = conn.send_command(cmd, cmd_verify=False, delay_factor=delay_factor)
             
             outputs.append(f"Command: {cmd}\n{output}")
             
