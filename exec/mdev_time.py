@@ -334,7 +334,7 @@ def get_device_config(device_type: str) -> Dict[str, Any]:
 
 def validate_device_data(device: Dict[str, str], row_idx: int) -> None:
     """验证设备数据完整性"""
-    required = ['host', 'username', 'password', 'device_type']
+    required = ['host', 'device_type']
     if missing := [f for f in required if not device.get(f)]:
         raise ValueError(f"Row {row_idx} 缺失字段: {', '.join(missing)}")
     
@@ -355,7 +355,7 @@ def load_excel(excel_file: str, sheet_name: str = 'Sheet1') -> List[Dict[str, st
         sheet = wb[sheet_name]
         
         headers = [str(cell.value).lower().strip() for cell in sheet[1]]
-        required = ['host', 'username', 'password', 'device_type']
+        required = ['host', 'device_type']
         if missing := [f for f in required if f not in headers]:
             raise ValueError(f"缺少必要列: {', '.join(missing)}")
 
@@ -623,6 +623,8 @@ def execute_show_commands(conn: netmiko.BaseConnection, cmds: List[str], device_
                 output = conn.send_command(cmd, expect_string=r'[>\]]\s*$', delay_factor=delay_factor)
             elif device_type.startswith('linux'):
                 output = conn.send_command(cmd, expect_string=r'[#$]\s*$', delay_factor=delay_factor)
+            elif vendor == 'h3c'
+                output = conn.send_command(cmd, expect_string=r'[#>]', delay_factor=delay_factor, max_loops=200)
             else:
                 # 标准命令发送
                 output = conn.send_command(cmd, delay_factor=delay_factor)
@@ -645,6 +647,7 @@ def save_result(ip: str, hostname: str, output: str, dest_path: str, device_type
     timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     
     content = f"""=== 设备信息 ===
+
 IP地址: {ip}
 主机名: {hostname}
 设备类型: {device_type}
