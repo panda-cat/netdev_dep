@@ -643,7 +643,7 @@ def save_result(ip: str, hostname: str, output: str, dest_path: str, device_type
     os.makedirs(output_dir, exist_ok=True)
 
     vendor = get_device_vendor(device_type)
-    filename = f"{sanitize_filename(ip)}_{hostname}_{vendor}_{device_type}.txt"
+    filename = f"{ip}_{sanitize_filename(hostname)}.txt"
     timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     
     content = f"""=== 设备信息 ===
