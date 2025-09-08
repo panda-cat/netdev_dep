@@ -557,7 +557,7 @@ def extract_hostname(conn: netmiko.BaseConnection, device_type: str, vendor: str
             'mikrotik': [r'$$(\S+?)$$', r'(\S+?)>'],
             'linux': [r'(\S+?)[@#$]', r'(\S+?):'],
             'f5': [r'$(\S+?)$', r'(\S+?)#'],
-            'default': [r'(\S*?)([\w.-]+)[#>@$]', r'(\S+?)[#>]', r'(\w+)']
+            'default': [r'(\S*?)([\w.-]+)[#<>@$]', r'(\S+?)[#>]', r'(\w+)']
         }
         
         patterns = hostname_patterns.get(vendor, hostname_patterns['default'])
@@ -649,7 +649,7 @@ def save_result(ip: str, hostname: str, output: str, dest_path: str, device_type
     content = f"""=== 设备信息 ===
 
 IP地址: {ip}
-主机名: {hostname}
+主机名: {sanitize_filename(hostname)}
 设备类型: {device_type}
 原始类型: {original_type}
 厂商: {vendor}
