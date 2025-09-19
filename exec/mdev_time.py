@@ -782,11 +782,11 @@ def parse_args() -> argparse.Namespace:
   --list-devices     可选  显示支持的设备类型
 
 **Excel格式**:
-| host        | username | password | device_type  | secret | port | mult_command         |
-|-------------|----------|----------|--------------|--------|------|---------------------|
-| 192.168.1.1 | admin    | pass123  | cisco_ios    | enable | 22   | show version        |
-| 192.168.1.2 | admin    | pass123  | huawei       |        | 22   | display version     |
-| 192.168.1.3 | admin    | pass123  | paloalto     |        | 22   | show system info    |
+| host        | username | password | device_type  | secret | port | mult_command             |
+|-------------|----------|----------|--------------|--------|------|--------------------------|
+| 192.168.1.1 | admin    | pass123  | cisco_ios    | enable | 22   | show version;sh clock    |
+| 192.168.1.2 | admin    | pass123  | huawei       |        | 22   | disp version;disp clock  |
+| 192.168.1.3 | admin    | pass123  | paloalto     |        | 22   | show system info         |
 
 **示例**:
   # 基本使用
