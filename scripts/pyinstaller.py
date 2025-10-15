@@ -9,7 +9,6 @@ import os
 
 PyInstaller.__main__.run([
     "--onefile",
-    "--aot",
     "--console",
     "--name", "connexec." + ("exe" if os.name == "nt" else "bin"),
     "--additional-hooks-dir", util.path("scripts"),
