@@ -507,6 +507,79 @@ def post_connection_setup(conn: netmiko.BaseConnection, device_type: str, vendor
         # 后连接设置失败不应该中断连接
         pass
 
+def send_command_with_pagination(conn: netmiko.BaseConnection, cmd: str, delay_factor: int = 1, max_loops: int = 500) -> str:
+    """**发送命令并处理分页提示符**
+    
+    自动检测分页提示符（-More-, -MORE-, More, more）并发送空格继续。
+    """
+    # 分页相关的正则表达式
+    pagination_patterns = [
+        r'-[Mm][Oo][Rr][Ee]-',  # -More- 或 -more-
+        r'[Mm][Oo][Rr][Ee]\s*\?',  # More ?
+    ]
+    
+    accumulated_output = ""
+    loop_count = 0
+    max_retries = 3
+    retry_count = 0
+    
+    try:
+        # 先发送命令
+        conn.write_channel(cmd + conn.RETURN)
+        
+        # 等待输出
+        time.sleep(0.5 * delay_factor)
+        
+        while loop_count < max_loops:
+            loop_count += 1
+            
+            # 读取输出
+            try:
+                output = conn.read_very_eager()
+                if output:
+                    accumulated_output += output
+                    retry_count = 0  # 重置重试计数
+            except:
+                pass
+            
+            # 检查是否出现分页提示符
+            pagination_found = False
+            for pattern in pagination_patterns:
+                if re.search(pattern, accumulated_output[-100:] if len(accumulated_output) > 100 else accumulated_output):
+                    pagination_found = True
+                    break
+            
+            if pagination_found:
+                # 发送空格继续
+                conn.write_channel(' ')
+                time.sleep(0.2 * delay_factor)
+                retry_count = 0
+            else:
+                # 检查是否回到提示符
+                if conn.base_connection.recv_ready():
+                    retry_count = 0
+                    time.sleep(0.1 * delay_factor)
+                else:
+                    retry_count += 1
+                    if retry_count >= max_retries:
+                        break
+                    time.sleep(0.1 * delay_factor)
+        
+        # 清理输出：移除分页提示符
+        for pattern in pagination_patterns:
+            accumulated_output = re.sub(pattern, '', accumulated_output)
+        
+        return accumulated_output
+        
+    except Exception as e:
+        # 如果特殊处理失败，尝试标准方法
+        try:
+            conn.write_channel(cmd + conn.RETURN)
+            time.sleep(0.5 * delay_factor)
+            return conn.read_channel()
+        except:
+            raise
+
 def execute_commands(device: Dict[str, str], config_set: bool) -> Optional[str]:
     """**通用命令执行（适配所有设备类型）**"""
     try:
@@ -612,8 +685,11 @@ def execute_show_commands(conn: netmiko.BaseConnection, cmds: List[str], device_
     
     for cmd in cmds:
         try:
+            # **检查是否为terminal_server设备，使用分页处理**
+            if device_type == 'generic_termserver':
+                output = send_command_with_pagination(conn, cmd, delay_factor=delay_factor)
             # **设备特定的命令发送方式**
-            if vendor == 'paloalto':
+            elif vendor == 'paloalto':
                 output = conn.send_command(cmd, cmd_verify=False, expect_string=r'[#>]', delay_factor=delay_factor, max_loops=200)
             elif vendor == 'fortinet':
                 output = conn.send_command(cmd, cmd_verify=False, delay_factor=delay_factor, max_loops=150)
@@ -768,6 +844,7 @@ def parse_args() -> argparse.Namespace:
 - **厂商特定优化配置** (针对不同厂商调优)
 - **自动重试机制** (连接失败自动重试)
 - **并发执行** (多线程提高效率)
+- **分页处理** (支持terminal_server自动分页)
 
 **使用方法**:
   python connexec.py -i <设备清单.xlsx> [选项]
