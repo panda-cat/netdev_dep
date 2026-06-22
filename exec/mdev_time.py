@@ -507,10 +507,10 @@ def post_connection_setup(conn: netmiko.BaseConnection, device_type: str, vendor
         # 后连接设置失败不应该中断连接
         pass
 
-def send_command_with_pagination(conn: netmiko.BaseConnection, cmd: str, delay_factor: int = 1, max_loops: int = 500) -> str:
+def send_command_with_pagination(conn: netmiko.BaseConnection, cmd: str, delay_factor: float = 1.0, max_loops: int = 500) -> str:
     """**发送命令并处理分页提示符**
     
-    自动检测分页提示符（-More-, -MORE-, More, more）并发送空格继续。
+    使用 write_channel 发送命令，然后通过 _test_channel_read 方式读取输出并处理分页。
     """
     # 分页相关的正则表达式
     pagination_patterns = [
@@ -520,32 +520,35 @@ def send_command_with_pagination(conn: netmiko.BaseConnection, cmd: str, delay_f
     
     accumulated_output = ""
     loop_count = 0
-    max_retries = 3
-    retry_count = 0
     
     try:
         # 先发送命令
         conn.write_channel(cmd + conn.RETURN)
         
-        # 等待输出
+        # 等待初始输出
         time.sleep(0.5 * delay_factor)
         
         while loop_count < max_loops:
             loop_count += 1
             
-            # 读取输出
+            # 使用 _test_channel_read 方式读取（如果有此方法）
             try:
-                output = conn.read_very_eager()
+                if hasattr(conn, '_test_channel_read'):
+                    output = conn._test_channel_read(pattern=r'.+', timeout=2.0 * delay_factor)
+                else:
+                    # 备选：直接从channel读取
+                    output = conn.read_channel()
+                    
                 if output:
                     accumulated_output += output
-                    retry_count = 0  # 重置重试计数
-            except:
+            except Exception:
+                # 超时或其他异常，检查缓冲区
                 pass
             
             # 检查是否出现分页提示符
             pagination_found = False
             for pattern in pagination_patterns:
-                if re.search(pattern, accumulated_output[-100:] if len(accumulated_output) > 100 else accumulated_output):
+                if re.search(pattern, accumulated_output[-200:] if len(accumulated_output) > 200 else accumulated_output):
                     pagination_found = True
                     break
             
@@ -553,31 +556,41 @@ def send_command_with_pagination(conn: netmiko.BaseConnection, cmd: str, delay_f
                 # 发送空格继续
                 conn.write_channel(' ')
                 time.sleep(0.2 * delay_factor)
-                retry_count = 0
             else:
-                # 检查是否回到提示符
+                # 检查是否还有数据等待读取
                 if conn.base_connection.recv_ready():
-                    retry_count = 0
                     time.sleep(0.1 * delay_factor)
                 else:
-                    retry_count += 1
-                    if retry_count >= max_retries:
-                        break
-                    time.sleep(0.1 * delay_factor)
+                    # 没有更多数据，尝试再读一次以确保完整
+                    time.sleep(0.2 * delay_factor)
+                    try:
+                        if hasattr(conn, '_test_channel_read'):
+                            final_output = conn._test_channel_read(pattern=r'.+', timeout=1.0)
+                        else:
+                            final_output = conn.read_channel()
+                        if final_output:
+                            accumulated_output += final_output
+                            continue
+                    except Exception:
+                        pass
+                    break
         
-        # 清理输出：移除分页提示符
+        # 清理输出：移除分页提示符和ANSI控制码
         for pattern in pagination_patterns:
             accumulated_output = re.sub(pattern, '', accumulated_output)
         
-        return accumulated_output
+        # 移除ANSI控制码（如果有）
+        accumulated_output = re.sub(r'\x1b\[[0-9;]*m', '', accumulated_output)
+        
+        return accumulated_output.strip()
         
     except Exception as e:
-        # 如果特殊处理失败，尝试标准方法
+        # 如果特殊处理失败，尝试备选方法
         try:
             conn.write_channel(cmd + conn.RETURN)
             time.sleep(0.5 * delay_factor)
-            return conn.read_channel()
-        except:
+            return conn.read_channel().strip()
+        except Exception:
             raise
 
 def execute_commands(device: Dict[str, str], config_set: bool) -> Optional[str]:
