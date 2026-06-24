@@ -177,32 +177,80 @@ def load_excel(excel_file: str, sheet_name: str = 'Sheet1') -> List[Dict[str, st
 # 设备连接
 # ---------------------------------------------------------------------------
 def connect_device(device: Dict[str, str]) -> Optional[netmiko.BaseConnection]:
-    """设备连接（自动生成独立日志文件）"""
+    """**通用设备连接（支持所有netmiko设备）**"""
+    device_type = device['device_type']
+    device_config = get_device_config(device_type)
+    vendor = get_device_vendor(device_type)
+    
+    # **基础连接参数**
     params = {
-        'device_type': device['device_type'],
+        'device_type': device_type,
         'host': device['host'],
         'username': device['username'],
         'password': device['password'],
-        'secret': device.get('secret', ''),
-        'read_timeout_override': int(device.get('readtime', 20)),
-        'fast_cli': False,
+        'timeout': device_config['timeout'],
+        'banner_timeout': device_config['banner_timeout'],
+        'auth_timeout': device_config['auth_timeout'],
+        'fast_cli': device_config['fast_cli'],
+        'session_timeout': device_config['session_timeout'],
+        'global_delay_factor': device_config['global_delay_factor'],
+        'conn_timeout': device_config['conn_timeout'],
+        'read_timeout_override': int(device.get('readtime', device_config['timeout']))
     }
 
+    # **可选参数**
+    if device.get('secret'):
+        params['secret'] = device['secret']
+    if device.get('port'):
+        params['port'] = int(device['port'])
+    
+    # **厂商特定配置**
+    if 'use_keys' in device_config:
+        params['use_keys'] = device_config['use_keys']
+    if 'allow_agent' in device_config:
+        params['allow_agent'] = device_config['allow_agent']
+
+    # **特殊协议配置**
+    if device_type.endswith('_telnet'):
+        # Telnet连接不需要SSH相关参数
+        params.pop('use_keys', None)
+        params.pop('allow_agent', None)
+    elif device_type.endswith('_serial'):
+        # 串口连接特殊配置
+        if device.get('serial_settings'):
+            params['serial_settings'] = device['serial_settings']
+
+    # **调试日志配置**
     if device.get('debug'):
         debug_dir = os.path.join("debug_logs", datetime.datetime.now().strftime('%Y%m%d'))
         os.makedirs(debug_dir, exist_ok=True)
         log_file = f"{sanitize_filename(device['host'])}_{uuid.uuid4().hex[:6]}.log"
         params['session_log'] = os.path.join(debug_dir, log_file)
 
-    try:
-        conn = netmiko.ConnectHandler(**params)
-        if params['secret']:
-            conn.enable()
-        return conn
-    except (NetmikoTimeoutException, NetmikoAuthenticationException) as e:
-        log_error(device['host'], f"{e.__class__.__name__}: {e}")
-    except Exception as e:
-        log_error(device['host'], f"连接异常: {e}")
+    # **多重连接尝试**
+    max_retries = 2
+    for attempt in range(max_retries + 1):
+        try:
+            conn = netmiko.ConnectHandler(**params)
+            
+            # **设备特定的后连接处理**
+            post_connection_setup(conn, device_type, vendor, device.get('secret'))
+            
+            return conn
+            
+        except (NetmikoTimeoutException, NetmikoAuthenticationException) as e:
+            if attempt < max_retries:
+                print(f"[RETRY {attempt+1}] {device['host']}: {e.__class__.__name__}")
+                time.sleep(2 ** attempt)
+                continue
+            log_error(device['host'], f"{e.__class__.__name__}: {str(e)} (Type: {device.get('original_type', device_type)})")
+        except Exception as e:
+            if attempt < max_retries:
+                print(f"[RETRY {attempt+1}] {device['host']}: Connection error")
+                time.sleep(2 ** attempt)
+                continue
+            log_error(device['host'], f"连接异常: {str(e)} (Type: {device.get('original_type', device_type)})")
+    
     return None
 
 
