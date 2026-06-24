@@ -1,25 +1,21 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-import os
-import re
-import sys
-import time
-import argparse
-import datetime
-from typing import List, Dict, Optional, Any
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from threading import Lock
-
 import netmiko
 import openpyxl
+import argparse
+import os
+import datetime
+import sys
+import re
+import uuid
+import time
+from typing import List, Dict, Optional
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from threading import Lock
+import encodings.idna
 from tqdm import tqdm
-from netmiko import (
-    ConnectHandler,
-    NetmikoTimeoutException,
-    NetmikoAuthenticationException,
-)
-from netmiko.ssh_dispatcher import CLASS_MAPPER
+from netmiko import NetmikoTimeoutException, NetmikoAuthenticationException
 
 # ---------------------------------------------------------------------------
 # 环境配置
@@ -28,145 +24,192 @@ os.environ["NO_COLOR"] = "1"
 write_lock = Lock()
 DEFAULT_THREADS = min(900, max(4, (os.cpu_count() or 4)))
 
-SUPPORTED_DEVICE_TYPES = set(CLASS_MAPPER.keys())
+# 需要手写分页的 device_type（Netmiko send_command 不会自动应答 --More--）
+MANUAL_PAGER_TYPES = {'generic_termserver', 'terminal_server', 'generic'}
 
-# ---------------------------------------------------------------------------
-# 设备类型别名映射（节选，可按需补全）
-# ---------------------------------------------------------------------------
-DEVICE_TYPE_ALIASES = {
-    'cisco': 'cisco_ios', 'cisco_switch': 'cisco_ios', 'nexus': 'cisco_nxos',
-    'asa': 'cisco_asa', 'ios_xe': 'cisco_xe', 'ios_xr': 'cisco_xr',
-    'huawei': 'huawei', 'vrp': 'huawei', 'vrpv8': 'huawei_vrpv8',
-    'hp': 'hp_comware', 'comware': 'hp_comware', 'h3c': 'hp_comware',
-    'aruba': 'aruba_os', 'juniper': 'juniper', 'junos': 'juniper',
-    'srx': 'juniper_screenos', 'fortinet': 'fortinet', 'fortigate': 'fortinet',
-    'paloalto': 'paloalto_panos', 'panos': 'paloalto_panos',
-    'dell': 'dell_force10', 'mikrotik': 'mikrotik_routeros',
-    'routeros': 'mikrotik_routeros', 'nokia': 'nokia_sros', 'sros': 'nokia_sros',
-    'f5': 'f5_tmsh', 'linux': 'linux',
-    'generic_termserver': 'generic_termserver', 'terminal_server': 'generic_termserver',
-}
-
-
-def resolve_device_type(raw: str) -> str:
-    """把别名或原始字符串解析为 Netmiko 标准 device_type。"""
-    if not raw:
-        return 'generic_termserver'
-    key = raw.strip().lower()
-    if key in SUPPORTED_DEVICE_TYPES:
-        return key
-    if key in DEVICE_TYPE_ALIASES:
-        return DEVICE_TYPE_ALIASES[key]
-    # 未知类型回退，避免直接崩溃
-    return 'generic_termserver'
+# pager 匹配：大小写不敏感，flag 放在 re.compile 参数里（避免 (?i) 中置报错）
+PAGER_RE = re.compile(
+    '|'.join([
+        r'--?\s*more\s*--?',           # --More--, - More -
+        r'more\s*[:?]',                # More:, More?
+        r'\(space.*?to\s+continue\)',  # (space to continue)
+        r'press\s+any\s+key',
+        r'press\s+<?space>?',
+        r'hit\s+any\s+key',
+    ]),
+    re.IGNORECASE,
+)
+ANSI_RE = re.compile(r'\x1b\[[0-9;?]*[A-Za-z]')
 
 
 # ---------------------------------------------------------------------------
-# 厂商连接参数（按解析后的 device_type 前缀匹配）
+# 工具函数
 # ---------------------------------------------------------------------------
-VENDOR_TIMEOUTS = {
-    'cisco': {'timeout': 25, 'banner_timeout': 15, 'auth_timeout': 10},
-    'huawei': {'timeout': 30, 'banner_timeout': 15, 'auth_timeout': 12},
-    'hp': {'timeout': 30, 'banner_timeout': 15, 'auth_timeout': 12},
-    'juniper': {'timeout': 30, 'banner_timeout': 15, 'auth_timeout': 12},
-    'default': {'timeout': 25, 'banner_timeout': 15, 'auth_timeout': 10},
-}
+def thread_initializer() -> None:
+    """线程初始化（解决编码问题）"""
+    import encodings.idna
+    encodings.idna.__name__  # 防止被优化
 
 
-def get_conn_extra(device_type: str) -> Dict[str, Any]:
-    for prefix, cfg in VENDOR_TIMEOUTS.items():
-        if prefix != 'default' and device_type.startswith(prefix):
-            return dict(cfg)
-    return dict(VENDOR_TIMEOUTS['default'])
+def sanitize_filename(name: str) -> str:
+    """生成安全文件名"""
+    return re.sub(r'[\\/*?:"<>|]', '', name).strip()[:60]
 
 
-# ---------------------------------------------------------------------------
-# 命令解析：把 Excel 单元格里的多条命令拆成列表
-# ---------------------------------------------------------------------------
-def parse_commands(cell_value: Any) -> List[str]:
-    """支持分号、换行混合分隔；去空白、去空行。"""
-    if cell_value is None:
-        return []
-    text = str(cell_value)
-    # 同时按换行和分号拆分
-    parts = re.split(r'[;\n\r]+', text)
-    return [p.strip() for p in parts if p.strip()]
+def log_error(host: str, msg: str) -> None:
+    """统一错误日志（控制台 + error_log 文件）"""
+    line = f"[{datetime.datetime.now():%Y-%m-%d %H:%M:%S}] {host} {msg}"
+    print(line)
+    with write_lock:
+        with open("error_log.txt", "a", encoding="utf-8") as f:
+            f.write(line + "\n")
+
+
+def validate_device_data(device: Dict[str, str], row_idx: int) -> None:
+    """验证设备数据完整性"""
+    required = ['host', 'username', 'password', 'device_type']
+    if missing := [f for f in required if not device.get(f)]:
+        raise ValueError(f"Row {row_idx} 缺失字段: {', '.join(missing)}")
 
 
 # ---------------------------------------------------------------------------
-# 分页处理函数
+# Excel 加载
 # ---------------------------------------------------------------------------
-def send_command_with_pagination(
+def load_excel(excel_file: str, sheet_name: str = 'Sheet1') -> List[Dict[str, str]]:
+    """加载Excel设备清单（线程安全+版本兼容）"""
+    devices = []
+    wb = None
+    try:
+        wb = openpyxl.load_workbook(excel_file, read_only=True)
+
+        if sheet_name not in wb.sheetnames:
+            raise ValueError(f"工作表 '{sheet_name}' 不存在")
+        sheet = wb[sheet_name]
+
+        headers = [str(cell.value).lower().strip() for cell in sheet[1]]
+        required = ['host', 'username', 'password', 'device_type']
+        if missing := [f for f in required if f not in headers]:
+            raise ValueError(f"缺少必要列: {', '.join(missing)}")
+
+        for row_idx, row in enumerate(sheet.iter_rows(min_row=2, values_only=True), 2):
+            device = {
+                headers[i]: str(cell).strip() if cell else ""
+                for i, cell in enumerate(row)
+            }
+            validate_device_data(device, row_idx)
+            devices.append(device)
+
+        return devices
+    except Exception as e:
+        print(f"Excel处理失败: {str(e)}")
+        sys.exit(1)
+    finally:
+        if wb:
+            wb.close()
+
+
+# ---------------------------------------------------------------------------
+# 设备连接
+# ---------------------------------------------------------------------------
+def connect_device(device: Dict[str, str]) -> Optional[netmiko.BaseConnection]:
+    """设备连接（自动生成独立日志文件）"""
+    params = {
+        'device_type': device['device_type'],
+        'host': device['host'],
+        'username': device['username'],
+        'password': device['password'],
+        'secret': device.get('secret', ''),
+        'read_timeout_override': int(device.get('readtime', 20)),
+        'fast_cli': False,
+    }
+    if device.get('port'):
+        params['port'] = int(device['port'])
+
+    # 动态生成设备专属 debug 日志路径
+    if device.get('debug'):
+        debug_dir = os.path.join("debug_logs", datetime.datetime.now().strftime('%Y%m%d'))
+        os.makedirs(debug_dir, exist_ok=True)
+        log_file = f"{sanitize_filename(device['host'])}_{uuid.uuid4().hex[:6]}.log"
+        params['session_log'] = os.path.join(debug_dir, log_file)
+
+    try:
+        conn = netmiko.ConnectHandler(**params)
+        if params['secret']:
+            conn.enable()
+        return conn
+    except (NetmikoTimeoutException, NetmikoAuthenticationException) as e:
+        log_error(device['host'], f"{e.__class__.__name__}: {str(e)}")
+    except Exception as e:
+        log_error(device['host'], f"连接异常: {str(e)}")
+    return None
+
+
+# ---------------------------------------------------------------------------
+# 终端服务器/generic 手写分页
+# ---------------------------------------------------------------------------
+def send_command_termserver(
     conn: netmiko.BaseConnection,
     cmd: str,
     delay_factor: float = 1.0,
     max_loops: int = 2000,
-    read_chunk_sleep: float = 0.08,
-    pager_space_sleep: float = 0.18,
-    stall_loops_before_return: int = 10,
 ) -> str:
-    """发送单条命令并处理分页提示符。"""
-    pager_regexes = [
-        r'--?[Mm]ore--?',
-        r'[Mm]ore\s*[:?]',
-        r'\(space.*?to\s+continue\)',
-        r'(?i)press\s+any\s+key',
-        r'(?i)press\s+<?space>?',
-        r'(?i)hit\s+any\s+key',
-    ]
-    pager_re = re.compile('|'.join(pager_regexes))
-    output: List[str] = []
-    seen_pager = False
-    empty_reads = 0
+    """对终端服务器/generic 设备手动处理分页（send_command 不会自动应答 --More--）。"""
     remote = getattr(conn, "remote_conn", None)
 
-    def drain_available() -> str:
+    def drain() -> str:
+        """持续读取当前可用字节，直到通道暂时无数据。"""
         buf = []
         while True:
             chunk = conn.read_channel()
             if chunk:
                 buf.append(chunk)
-                time.sleep(read_chunk_sleep * delay_factor)
+                time.sleep(0.08 * delay_factor)
                 continue
+            # read_channel 非阻塞，单次可能只拿到部分，确认通道是否还有字节
             if remote is not None and remote.recv_ready():
-                time.sleep(read_chunk_sleep * delay_factor)
+                time.sleep(0.08 * delay_factor)
                 continue
             break
         return ''.join(buf)
 
+    output = []
     conn.write_channel(cmd + conn.RETURN)
-    time.sleep(0.2 * delay_factor)
+    time.sleep(0.3 * delay_factor)
 
-    first = drain_available()
+    first = drain()
     if first:
         output.append(first)
 
+    seen_pager = False
+    empty_reads = 0
+
     for _ in range(max_loops):
-        tail = ''.join(output)[-512:] if output else ''
-        if pager_re.search(tail):
+        tail = ANSI_RE.sub('', ''.join(output))[-512:]
+
+        if PAGER_RE.search(tail):
             seen_pager = True
             conn.write_channel(' ')
-            time.sleep(pager_space_sleep * delay_factor)
-            chunk = drain_available()
+            time.sleep(0.18 * delay_factor)
+            chunk = drain()
             if chunk:
                 output.append(chunk)
                 empty_reads = 0
                 continue
             empty_reads += 1
-            if empty_reads >= stall_loops_before_return:
+            if empty_reads >= 10:  # 空格连续无效，尝试回车
                 conn.write_channel(conn.RETURN)
-                time.sleep(pager_space_sleep * delay_factor)
-                chunk = drain_available()
+                time.sleep(0.18 * delay_factor)
+                chunk = drain()
                 if chunk:
                     output.append(chunk)
                     empty_reads = 0
                     continue
         else:
-            chunk = drain_available()
+            chunk = drain()
             if chunk:
                 output.append(chunk)
                 empty_reads = 0
-                time.sleep(read_chunk_sleep * delay_factor)
+                time.sleep(0.08 * delay_factor)
                 continue
             empty_reads += 1
             if seen_pager and empty_reads >= 4:
@@ -174,222 +217,137 @@ def send_command_with_pagination(
             if not seen_pager and empty_reads >= 6:
                 break
 
-    # 清理 ANSI 与分页残留行
-    text = ''.join(output)
-    text = re.sub(r'\x1b\[[0-9;?]*[A-Za-z]', '', text)
-    text = pager_re.sub('', text)
-    return text
+    # 清理 ANSI 与 pager token 残留
+    raw = ''.join(output)
+    raw = ANSI_RE.sub('', raw)
+    raw = PAGER_RE.sub('', raw)
+    return raw
 
 
 # ---------------------------------------------------------------------------
-# 单台设备处理
+# 命令执行
 # ---------------------------------------------------------------------------
-def process_device(
-    device: Dict[str, Any],
-    global_commands: List[str],
-    use_pagination: bool,
-) -> Dict[str, Any]:
-    """连接单台设备并执行其专属命令列表。"""
-    host = device['host']
-    device_type = device['device_type']
-
-    # 行内命令优先；为空才用全局兜底
-    commands = device.get('commands') or global_commands
-
-    result: Dict[str, Any] = {
-        'host': host,
-        'device_type': device_type,
-        'status': 'failed',
-        'error': '',
-        'outputs': [],  # [(cmd, output), ...]
-    }
-
-    if not commands:
-        result['error'] = '无命令可执行（行内与全局均为空）'
-        return result
-
-    conn_params = {
-        'device_type': device_type,
-        'host': host,
-        'username': device['username'],
-        'password': device['password'],
-        'port': device.get('port', 22),
-        **get_conn_extra(device_type),
-    }
-    if device.get('secret'):
-        conn_params['secret'] = device['secret']
-
+def execute_commands(device: Dict[str, str], config_set: bool) -> Optional[str]:
+    """执行命令并捕获输出（已识别厂商走 send_command，终端服务器走手写分页）。"""
     try:
-        with ConnectHandler(**conn_params) as conn:
-            if device.get('secret'):
-                try:
-                    conn.enable()
-                except Exception:
-                    pass  # 部分设备无需 enable
+        cmds = [c.strip() for c in device.get('mult_command', '').split(';') if c.strip()]
+        if not cmds:
+            print(f"{device['host']} [WARN] 无有效命令")
+            return None
 
-            for cmd in commands:
-                try:
-                    if use_pagination:
-                        out = send_command_with_pagination(conn, cmd)
+        if not (conn := connect_device(device)):
+            return None
+
+        dtype = device['device_type'].strip().lower()
+        use_manual_pager = dtype in MANUAL_PAGER_TYPES
+
+        with conn:
+            # 获取设备主机名
+            prompt = conn.find_prompt().strip()
+            m = re.search(r'\S*?([\w.-]+)\s*[#>$\]]', prompt)
+            device['hostname'] = m.group(1) if m else sanitize_filename(device['host'])
+
+            blocks = []
+
+            if config_set and not use_manual_pager:
+                # 配置模式（仅已识别厂商支持 send_config_set）
+                out = conn.send_config_set(cmds)
+                blocks.append(out)
+            else:
+                for cmd in cmds:
+                    if use_manual_pager:
+                        out = send_command_termserver(conn, cmd)
                     else:
                         out = conn.send_command(
-                            cmd, read_timeout=60, strip_prompt=False,
+                            cmd,
+                            read_timeout=int(device.get('readtime', 20)),
+                            strip_prompt=False,
                             strip_command=False,
                         )
-                except Exception as e:
-                    out = f'[命令执行异常] {e}'
-                result['outputs'].append((cmd, out))
+                    blocks.append(f"{'=' * 60}\n命令: {cmd}\n{'-' * 60}\n{out}")
 
-        result['status'] = 'success'
+            return "\n\n".join(blocks)
 
-    except NetmikoAuthenticationException:
-        result['error'] = '认证失败（用户名/密码错误）'
-    except NetmikoTimeoutException:
-        result['error'] = '连接超时（设备不可达或端口未开）'
     except Exception as e:
-        result['error'] = f'未知错误: {e}'
-
-    return result
-
-
-# ---------------------------------------------------------------------------
-# 读取 Excel 设备清单
-# ---------------------------------------------------------------------------
-def load_devices(path: str) -> List[Dict[str, Any]]:
-    """
-    读取设备清单。表头需包含（大小写不敏感）：
-    host, device_type, username, password, [secret], [port], [commands]
-    """
-    wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
-    ws = wb.active
-
-    rows = ws.iter_rows(values_only=True)
-    header = next(rows, None)
-    if not header:
-        raise ValueError('Excel 为空或缺少表头')
-
-    col = {str(h).strip().lower(): i for i, h in enumerate(header) if h is not None}
-
-    required = ['host', 'device_type', 'username', 'password']
-    missing = [r for r in required if r not in col]
-    if missing:
-        raise ValueError(f'缺少必需列: {missing}')
-
-    devices: List[Dict[str, Any]] = []
-    for row in rows:
-        if row is None or all(c is None for c in row):
-            continue
-        host = row[col['host']]
-        if not host:
-            continue
-
-        device = {
-            'host': str(host).strip(),
-            'device_type': resolve_device_type(str(row[col['device_type']] or '')),
-            'username': str(row[col['username']] or '').strip(),
-            'password': str(row[col['password']] or ''),
-            'secret': str(row[col['secret']]).strip() if 'secret' in col and row[col['secret']] else '',
-            'port': int(row[col['port']]) if 'port' in col and row[col['port']] else 22,
-            'commands': parse_commands(row[col['commands']]) if 'commands' in col else [],
-        }
-        devices.append(device)
-
-    wb.close()
-    return devices
+        log_error(device['host'], f"[命令执行异常] {str(e)}")
+        return None
 
 
 # ---------------------------------------------------------------------------
-# 写出结果
+# 结果保存（txt 文本）
 # ---------------------------------------------------------------------------
-def write_results(results: List[Dict[str, Any]], out_path: str) -> None:
-    wb = openpyxl.Workbook()
-    ws = wb.active
-    ws.title = 'results'
-    ws.append(['host', 'device_type', 'status', 'command', 'output', 'error'])
+def save_output(device: Dict[str, str], content: str, output_dir: str) -> None:
+    """每台设备保存为独立 txt 文件。"""
+    if not content:
+        return
+    host = device.get('hostname') or sanitize_filename(device['host'])
+    ts = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+    filename = f"{sanitize_filename(host)}_{sanitize_filename(device['host'])}_{ts}.txt"
+    filepath = os.path.join(output_dir, filename)
 
-    for r in results:
-        if r['outputs']:
-            for cmd, out in r['outputs']:
-                ws.append([r['host'], r['device_type'], r['status'], cmd, out, r['error']])
-        else:
-            ws.append([r['host'], r['device_type'], r['status'], '', '', r['error']])
+    header = (
+        f"设备: {device['host']}\n"
+        f"主机名: {device.get('hostname', '')}\n"
+        f"类型: {device['device_type']}\n"
+        f"时间: {datetime.datetime.now():%Y-%m-%d %H:%M:%S}\n"
+        f"{'#' * 60}\n\n"
+    )
 
-    wb.save(out_path)
+    with write_lock:
+        with open(filepath, "w", encoding="utf-8") as f:
+            f.write(header + content + "\n")
+    print(f"{device['host']} [OK] 结果已保存 -> {filepath}")
+
+
+# ---------------------------------------------------------------------------
+# 单设备任务
+# ---------------------------------------------------------------------------
+def process_device(device: Dict[str, str], config_set: bool, output_dir: str) -> bool:
+    """单台设备完整流程：连接 -> 执行 -> 保存。"""
+    output = execute_commands(device, config_set)
+    if output is None:
+        return False
+    save_output(device, output, output_dir)
+    return True
 
 
 # ---------------------------------------------------------------------------
 # 主流程
 # ---------------------------------------------------------------------------
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description='批量采集网络设备命令输出（每台设备命令在 Excel 中定义）'
-    )
-    parser.add_argument('-i', '--input', required=True, help='设备清单 Excel 路径')
-    parser.add_argument('-o', '--output', help='结果输出 Excel 路径')
-    parser.add_argument(
-        '-c', '--command', action='append', default=[],
-        help='全局兜底命令（仅当某设备行未定义 commands 时使用，可重复指定）',
-    )
-    parser.add_argument(
-        '-t', '--threads', type=int, default=DEFAULT_THREADS,
-        help=f'并发线程数（默认 {DEFAULT_THREADS}）',
-    )
-    parser.add_argument(
-        '--no-pagination', action='store_true',
-        help='禁用自定义分页处理，改用 netmiko 默认 send_command',
-    )
+    parser = argparse.ArgumentParser(description="批量网络设备命令执行工具（每台设备命令来自 Excel）")
+    parser.add_argument('-i', '--input', required=True, help="Excel 设备清单文件")
+    parser.add_argument('-s', '--sheet', default='Sheet1', help="工作表名（默认 Sheet1）")
+    parser.add_argument('-o', '--output', default='output', help="结果输出目录（默认 output）")
+    parser.add_argument('-t', '--threads', type=int, default=DEFAULT_THREADS, help="并发线程数")
+    parser.add_argument('--config', action='store_true', help="以配置模式下发命令（send_config_set）")
     args = parser.parse_args()
 
     if not os.path.isfile(args.input):
-        print(f'输入文件不存在: {args.input}', file=sys.stderr)
+        print(f"输入文件不存在: {args.input}")
         sys.exit(1)
 
-    out_path = args.output or (
-        f'result_{datetime.datetime.now():%Y%m%d_%H%M%S}.xlsx'
-    )
+    os.makedirs(args.output, exist_ok=True)
 
-    try:
-        devices = load_devices(args.input)
-    except Exception as e:
-        print(f'读取设备清单失败: {e}', file=sys.stderr)
-        sys.exit(1)
+    devices = load_excel(args.input, args.sheet)
+    print(f"共加载 {len(devices)} 台设备，线程数 {args.threads}")
 
-    if not devices:
-        print('没有可处理的设备', file=sys.stderr)
-        sys.exit(1)
-
-    global_commands = [c.strip() for c in args.command if c.strip()]
-    use_pagination = not args.no_pagination
-
-    print(f'共 {len(devices)} 台设备，并发 {args.threads}，'
-          f'分页处理: {"开启" if use_pagination else "关闭"}')
-
-    results: List[Dict[str, Any]] = []
-    with ThreadPoolExecutor(max_workers=args.threads) as pool:
+    success = 0
+    with ThreadPoolExecutor(max_workers=args.threads, initializer=thread_initializer) as executor:
         futures = {
-            pool.submit(process_device, dev, global_commands, use_pagination): dev
+            executor.submit(process_device, dev, args.config, args.output): dev
             for dev in devices
         }
-        for fut in tqdm(as_completed(futures), total=len(futures), desc='进度'):
+        for future in tqdm(as_completed(futures), total=len(futures), desc="执行进度"):
+            dev = futures[future]
             try:
-                results.append(fut.result())
+                if future.result():
+                    success += 1
             except Exception as e:
-                dev = futures[fut]
-                results.append({
-                    'host': dev['host'], 'device_type': dev['device_type'],
-                    'status': 'failed', 'error': f'线程异常: {e}', 'outputs': [],
-                })
+                log_error(dev['host'], f"任务异常: {str(e)}")
 
-    # 保持与输入顺序一致
-    order = {d['host']: i for i, d in enumerate(devices)}
-    results.sort(key=lambda r: order.get(r['host'], 1 << 30))
-
-    with write_lock:
-        write_results(results, out_path)
-
-    ok = sum(1 for r in results if r['status'] == 'success')
-    print(f'\n完成：成功 {ok} / 共 {len(results)}，结果已写入 {out_path}')
+    print(f"\n完成：成功 {success} / 总计 {len(devices)}")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
